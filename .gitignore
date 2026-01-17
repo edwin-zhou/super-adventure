@@ -25,3 +25,8 @@ dist-ssr
 
 # pnpm
 .pnpm-store
+
+# Environment variables
+.env
+.env.local
+.env*.local
