@@ -30,10 +30,6 @@ export function useKeyboardShortcuts() {
             setTool('select')
             e.preventDefault()
             break
-          case 'h':
-            setTool('pan')
-            e.preventDefault()
-            break
           case 'r':
             setTool('rectangle')
             e.preventDefault()

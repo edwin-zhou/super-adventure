@@ -10,59 +10,46 @@ import {
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
-const BACKGROUND_COLORS = [
-  { name: 'Dark Slate', value: '#0f172a' },
-  { name: 'Midnight', value: '#1e293b' },
-  { name: 'Dark Gray', value: '#1f2937' },
-  { name: 'Charcoal', value: '#18181b' },
-  { name: 'Dark Blue', value: '#1e3a8a' },
-  { name: 'Dark Purple', value: '#581c87' },
-  { name: 'Dark Indigo', value: '#312e81' },
-  { name: 'Dark Green', value: '#14532d' },
-  { name: 'Dark Teal', value: '#134e4a' },
-  { name: 'Dark Cyan', value: '#164e63' },
-  { name: 'Dark Brown', value: '#3f2f23' },
-  { name: 'Black', value: '#000000' },
-  { name: 'Slate Gray', value: '#334155' },
-  { name: 'Cool Gray', value: '#374151' },
-  { name: 'Warm Gray', value: '#3f3f46' },
-  { name: 'Navy', value: '#1e40af' },
+const PAGE_COLORS = [
+  { name: 'White', value: '#ffffff' },
+  { name: 'Cream', value: '#fef3c7' },
+  { name: 'Light Yellow', value: '#fef9c3' },
+  { name: 'Light Blue', value: '#dbeafe' },
+  { name: 'Light Green', value: '#dcfce7' },
+  { name: 'Light Pink', value: '#fce7f3' },
+  { name: 'Light Purple', value: '#f3e8ff' },
+  { name: 'Light Gray', value: '#f3f4f6' },
+  { name: 'Beige', value: '#fef2f2' },
+  { name: 'Mint', value: '#d1fae5' },
+  { name: 'Sky', value: '#e0f2fe' },
+  { name: 'Lavender', value: '#ede9fe' },
+  { name: 'Peach', value: '#ffedd5' },
+  { name: 'Rose', value: '#ffe4e6' },
+  { name: 'Ivory', value: '#fffbeb' },
+  { name: 'Slate', value: '#e2e8f0' },
 ]
 
 export function BackgroundSelector() {
   const [showColorPanel, setShowColorPanel] = useState(false)
-  const [selectedColor, setSelectedColor] = useState(BACKGROUND_COLORS[0]) // Default to dark slate
-  const [customColor, setCustomColor] = useState('#0f172a')
+  const [selectedColor, setSelectedColor] = useState(PAGE_COLORS[0]) // Default to white
+  const [customColor, setCustomColor] = useState('#ffffff')
 
-  const applyBackground = (color: string) => {
-    // Update CSS variable
-    document.documentElement.style.setProperty('--bg-primary', color)
-    
-    // Update body and canvas backgrounds
-    document.body.style.backgroundColor = color
-    const whiteboardCanvas = document.querySelector('.whiteboard-canvas') as HTMLElement
-    if (whiteboardCanvas) {
-      whiteboardCanvas.style.backgroundColor = color
-    }
-    
-    // Update root element
-    const root = document.getElementById('root')
-    if (root) {
-      root.style.backgroundColor = color
-    }
+  const applyPageColor = (color: string) => {
+    // Update CSS variable for page color
+    document.documentElement.style.setProperty('--page-color', color)
   }
 
-  const handleColorSelect = (color: typeof BACKGROUND_COLORS[0]) => {
+  const handleColorSelect = (color: typeof PAGE_COLORS[0]) => {
     setSelectedColor(color)
     setCustomColor(color.value)
-    applyBackground(color.value)
+    applyPageColor(color.value)
     setShowColorPanel(false)
   }
 
   const handleCustomColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const color = e.target.value
     setCustomColor(color)
-    applyBackground(color)
+    applyPageColor(color)
     setSelectedColor({ name: 'Custom', value: color })
   }
 
@@ -80,14 +67,14 @@ export function BackgroundSelector() {
               <Pipette size={18} />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="right">Background Color</TooltipContent>
+          <TooltipContent side="right">Theme Color</TooltipContent>
         </Tooltip>
 
         {/* Color Panel */}
         {showColorPanel && (
           <div className="absolute bottom-0 left-12 bg-slate-800/95 backdrop-blur-sm border border-slate-700 rounded-lg p-4 shadow-lg w-80 z-[60] max-h-[500px] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <Label className="text-sm text-white font-semibold">Choose Background Color</Label>
+              <Label className="text-sm text-white font-semibold">Choose Page Theme Color</Label>
               <button
                 onClick={() => setShowColorPanel(false)}
                 className="text-slate-400 hover:text-white"
@@ -97,13 +84,13 @@ export function BackgroundSelector() {
             </div>
 
             <div className="grid grid-cols-4 gap-3 mb-4">
-              {BACKGROUND_COLORS.map((color) => (
+              {PAGE_COLORS.map((color) => (
                 <button
                   key={color.name}
                   onClick={() => handleColorSelect(color)}
                   className={cn(
                     'relative group rounded-lg p-4 transition-all hover:scale-110 border-2',
-                    selectedColor.value === color.value ? 'border-white' : 'border-slate-600'
+                    selectedColor.value === color.value ? 'border-blue-400 shadow-lg' : 'border-slate-500'
                   )}
                   style={{ backgroundColor: color.value }}
                   title={color.name}
