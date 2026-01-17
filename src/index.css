@@ -11,6 +11,13 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  
+  /* Theme colors - default to blue */
+  --theme-primary: #3b82f6;
+  --theme-primary-hover: #2563eb;
+  
+  /* Background color - default to dark slate */
+  --bg-primary: #0f172a;
 }
 
 body {
@@ -75,4 +82,25 @@ textarea::-webkit-scrollbar-thumb:hover {
 
 .animate-fade-in {
   animation: fadeIn 200ms ease-out;
+}
+
+/* Theme color utilities */
+.bg-theme-primary {
+  background-color: var(--theme-primary) !important;
+}
+
+.bg-theme-primary-hover:hover {
+  background-color: var(--theme-primary-hover) !important;
+}
+
+.text-theme-primary {
+  color: var(--theme-primary) !important;
+}
+
+.border-theme-primary {
+  border-color: var(--theme-primary) !important;
+}
+
+.ring-theme-primary {
+  --tw-ring-color: var(--theme-primary) !important;
 }

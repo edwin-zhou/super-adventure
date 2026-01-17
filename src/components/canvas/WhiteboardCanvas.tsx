@@ -217,7 +217,7 @@ export function WhiteboardCanvas() {
   }
 
   return (
-    <div className="w-full h-full bg-slate-900 relative">
+    <div className="w-full h-full bg-slate-900 relative whiteboard-canvas">
       {/* Grid Background */}
       <div 
         className="absolute inset-0 opacity-20"

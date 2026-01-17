@@ -1,8 +1,4 @@
 import {
-  MousePointer2,
-  Square,
-  Circle,
-  Minus,
   Pen,
   Type,
   StickyNote as StickyNoteIcon,
@@ -12,6 +8,7 @@ import {
   Redo2,
   ZoomIn,
   ZoomOut,
+  BoxSelect,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -21,6 +18,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { Separator } from '@/components/ui/separator'
+import { BackgroundSelector } from '@/components/theme/BackgroundSelector'
 import { useWhiteboardStore } from '@/stores/useWhiteboardStore'
 import type { ToolType } from '@/types/whiteboard'
 import { cn } from '@/lib/utils'
@@ -44,7 +42,7 @@ function ToolButton({ tool, icon, label, shortcut }: ToolButtonProps) {
           size="icon"
           className={cn(
             'w-10 h-10',
-            isActive && 'bg-blue-600 hover:bg-blue-700'
+            isActive && 'bg-theme-primary bg-theme-primary-hover'
           )}
           onClick={() => setTool(tool)}
         >
@@ -81,15 +79,9 @@ export function Toolbar() {
 
   return (
     <TooltipProvider>
-      <div className="fixed left-4 top-1/2 -translate-y-1/2 z-50">
+      <div className="fixed left-4 top-20 z-50">
         <div className="flex flex-col gap-1 bg-slate-800/90 backdrop-blur-sm border border-slate-700 rounded-lg p-2 shadow-lg">
           {/* Selection & Drawing Tools */}
-          <ToolButton
-            tool="select"
-            icon={<MousePointer2 size={18} />}
-            label="Select"
-            shortcut="V"
-          />
           <ToolButton
             tool="pan"
             icon={<Hand size={18} />}
@@ -101,28 +93,16 @@ export function Toolbar() {
           
           {/* Shape Tools */}
           <ToolButton
-            tool="rectangle"
-            icon={<Square size={18} />}
-            label="Rectangle"
-            shortcut="R"
-          />
-          <ToolButton
-            tool="circle"
-            icon={<Circle size={18} />}
-            label="Circle"
-            shortcut="C"
-          />
-          <ToolButton
-            tool="line"
-            icon={<Minus size={18} />}
-            label="Line"
-            shortcut="L"
-          />
-          <ToolButton
             tool="pen"
             icon={<Pen size={18} />}
             label="Pen"
             shortcut="P"
+          />
+          <ToolButton
+            tool="select"
+            icon={<BoxSelect size={18} />}
+            label="Select Area"
+            shortcut="V"
           />
           
           <Separator className="my-1 bg-slate-600" />
@@ -220,6 +200,11 @@ export function Toolbar() {
             </TooltipTrigger>
             <TooltipContent side="right">Zoom Out</TooltipContent>
           </Tooltip>
+          
+          <Separator className="my-1 bg-slate-600" />
+          
+          {/* Background Color Selector */}
+          <BackgroundSelector />
           
           {/* Zoom Percentage Display */}
           <div className="text-xs text-center text-slate-400 mt-1">
