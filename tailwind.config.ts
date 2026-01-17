@@ -1,7 +1,8 @@
 import type { Config } from 'tailwindcss'
+import typography from '@tailwindcss/typography'
 
 export default {
-  darkMode: ['class'],
+  darkMode: 'class',
   content: [
     './pages/**/*.{ts,tsx}',
     './components/**/*.{ts,tsx}',
@@ -11,5 +12,5 @@ export default {
   theme: {
     extend: {},
   },
-  plugins: [],
+  plugins: [typography],
 } satisfies Config
