@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Bot, Minimize2, Headphones, X, Plus, Upload, Link, Youtube, Loader2 } from 'lucide-react'
+import { Send, Bot, Minimize2, Headphones, X, Plus, Upload, Link, Youtube, Loader2, Wand2, Download } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
@@ -15,6 +15,11 @@ import {
   normalizeYoutubeUrl,
   type ChatMessage as GeminiMessage,
 } from '@/lib/gemini'
+import {
+  generateImage,
+  imageDataToUrl,
+  downloadImage,
+} from '@/lib/openai-image'
 
 interface Message {
   id: string
@@ -22,6 +27,8 @@ interface Message {
   content: string
   timestamp: Date
   youtubeUrl?: string
+  imageUrl?: string
+  imagePrompt?: string
   isLoading?: boolean
   isError?: boolean
 }
@@ -62,7 +69,7 @@ export function ChatBot() {
     {
       id: '1',
       role: 'assistant',
-      content: 'Hello! I\'m your AI teaching assistant powered by Gemini. I can help you understand content, answer questions, and analyze up to 10 YouTube videos at once! Just paste YouTube links and ask me anything about them.',
+      content: 'Hello! I\'m your AI teaching assistant powered by Gemini. I can help you understand content, answer questions, and analyze up to 10 YouTube videos at once!\n\n**Commands:**\n- `/image <description>` - Generate AI images with GPT-Image-1.5\n- Just paste YouTube links to analyze videos\n\nTry `/image a cute baby sea otter` to test image generation!',
       timestamp: new Date(),
     },
   ])
@@ -149,6 +156,82 @@ export function ChatBot() {
 
   const handleSend = async (messageText?: string, youtubeUrl?: string) => {
     const textToSend = messageText ?? input
+    
+    // Check for image generation command
+    const imageCommandMatch = textToSend.match(/^\/image\s+(.+)$/i)
+    if (imageCommandMatch) {
+      const imagePrompt = imageCommandMatch[1].trim()
+      
+      // Add user message
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: `/image ${imagePrompt}`,
+        timestamp: new Date(),
+      }
+
+      // Add loading message
+      const loadingMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: 'Generating image with GPT-Image-1.5...',
+        timestamp: new Date(),
+        isLoading: true,
+      }
+
+      setMessages((prev) => [...prev, userMessage, loadingMessage])
+      setInput('')
+      setIsGenerating(true)
+
+      try {
+        // Generate the image
+        const result = await generateImage(imagePrompt, {
+          model: 'gpt-image-1.5',
+          quality: 'medium',
+          size: '1024x1024',
+        })
+
+        // Convert to URL for display
+        const imageUrl = imageDataToUrl(result.imageData, result.format)
+
+        // Replace loading message with image
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === loadingMessage.id
+              ? {
+                  ...m,
+                  content: `✨ Generated: "${result.revisedPrompt || imagePrompt}"`,
+                  imageUrl,
+                  imagePrompt,
+                  isLoading: false,
+                  timestamp: new Date(),
+                }
+              : m
+          )
+        )
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to generate image'
+        
+        // Replace loading message with error
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === loadingMessage.id
+              ? {
+                  ...m,
+                  content: `❌ ${errorMessage}`,
+                  isLoading: false,
+                  isError: true,
+                  timestamp: new Date(),
+                }
+              : m
+          )
+        )
+      } finally {
+        setIsGenerating(false)
+      }
+      
+      return // Exit early for image generation
+    }
     
     // Collect all YouTube URLs: explicit URL, pending videos, and extracted from message
     const extractedUrls = extractYoutubeUrls(textToSend)
@@ -377,10 +460,10 @@ export function ChatBot() {
             <Bot size={18} />
           </div>
           <div>
-            <h3 className="font-semibold text-white text-sm">Gemini Assistant</h3>
+            <h3 className="font-semibold text-white text-sm">AI Assistant</h3>
             <p className="text-xs text-slate-400 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400"></span>
-              Online • Video Analysis
+              Online • Video & Image AI
             </p>
           </div>
         </div>
@@ -562,14 +645,47 @@ export function ChatBot() {
                   <span className="text-sm">{message.content}</span>
                 </div>
               ) : (
-                <div className="text-sm prose prose-sm prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-pre:bg-slate-900 prose-pre:text-slate-100 prose-code:text-purple-300 prose-code:bg-slate-900/50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-strong:text-white prose-a:text-blue-400 [&_.katex]:text-slate-100">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkMath]}
-                    rehypePlugins={[rehypeKatex]}
-                  >
-                    {message.content}
-                  </ReactMarkdown>
-                </div>
+                <>
+                  {/* Display generated image if present */}
+                  {message.imageUrl && (
+                    <div className="mb-3">
+                      <div className="relative rounded-lg overflow-hidden border border-slate-600">
+                        <img
+                          src={message.imageUrl}
+                          alt={message.imagePrompt || 'Generated image'}
+                          className="w-full h-auto"
+                        />
+                      </div>
+                      {message.imagePrompt && (
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <p className="text-xs text-slate-400 italic">
+                            Prompt: {message.imagePrompt}
+                          </p>
+                          <button
+                            onClick={() => {
+                              // Extract base64 from data URL
+                              const base64Data = message.imageUrl!.split(',')[1]
+                              downloadImage(base64Data, 'generated-image', 'png')
+                            }}
+                            className="flex items-center gap-1 px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded transition-colors"
+                            title="Download image"
+                          >
+                            <Download size={12} />
+                            <span>Download</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="text-sm prose prose-sm prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-pre:bg-slate-900 prose-pre:text-slate-100 prose-code:text-purple-300 prose-code:bg-slate-900/50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-strong:text-white prose-a:text-blue-400 [&_.katex]:text-slate-100">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkMath]}
+                      rehypePlugins={[rehypeKatex]}
+                    >
+                      {message.content}
+                    </ReactMarkdown>
+                  </div>
+                </>
               )}
               
               <p className="text-xs mt-1 opacity-60">
@@ -586,6 +702,13 @@ export function ChatBot() {
 
       {/* Input */}
       <div className="p-4 border-t border-slate-700">
+        {/* Image generation indicator */}
+        {input.match(/^\/image\s+/i) && (
+          <div className="mb-2 px-2 py-1 bg-purple-500/10 rounded flex items-center gap-2">
+            <Wand2 size={14} className="text-purple-400" />
+            <span className="text-xs text-purple-300">Image generation mode - GPT-Image-1.5</span>
+          </div>
+        )}
         {/* YouTube indicator in input */}
         {inputHasYoutube && pendingVideos.length < MAX_VIDEOS && (
           <div className="mb-2 px-2 py-1 bg-red-500/10 rounded flex items-center gap-2">
@@ -622,6 +745,16 @@ export function ChatBot() {
                 className="absolute bottom-12 left-0 bg-slate-800 border border-slate-700 rounded-lg shadow-lg py-2 w-48 z-10"
                 onClick={(e) => e.stopPropagation()}
               >
+                <button
+                  onClick={() => {
+                    setShowPlusMenu(false)
+                    setInput('/image ')
+                  }}
+                  className="w-full px-4 py-2 text-left text-white hover:bg-slate-700 flex items-center gap-2"
+                >
+                  <Wand2 size={16} className="text-purple-400" />
+                  <span>Generate Image</span>
+                </button>
                 <button
                   onClick={() => {
                     setShowPlusMenu(false)
@@ -687,7 +820,7 @@ export function ChatBot() {
                 ? 'Generating...' 
                 : pendingVideos.length > 0 
                   ? `Ask about ${pendingVideos.length === 1 ? 'this video' : `these ${pendingVideos.length} videos`}...` 
-                  : 'Ask anything or paste YouTube URLs...'
+                  : 'Ask anything, /image <prompt>, or paste YouTube URLs...'
             }
             className="flex-1 bg-slate-900 border-slate-600 text-white placeholder:text-slate-500"
             disabled={isGenerating}
