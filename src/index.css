@@ -16,8 +16,11 @@
   --theme-primary: #3b82f6;
   --theme-primary-hover: #2563eb;
   
-  /* Background color - default to dark slate */
-  --bg-primary: #0f172a;
+  /* Page color - default to white */
+  --page-color: #ffffff;
+  
+  /* Default font - default to Arial */
+  --default-font: Arial, sans-serif;
 }
 
 body {
@@ -26,7 +29,7 @@ body {
   place-items: center;
   min-width: 320px;
   min-height: 100vh;
-  background-color: #0f172a;
+  background-color: #d1d5db;
 }
 
 #root {

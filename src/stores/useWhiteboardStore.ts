@@ -23,7 +23,7 @@ const initialDefaultStyles = {
 export const useWhiteboardStore = create<WhiteboardState>((set) => ({
   // Initial state
   elements: [],
-  currentTool: 'select',
+  currentTool: 'pen',
   viewport: initialViewport,
   selection: {
     selectedIds: [],
