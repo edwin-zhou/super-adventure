@@ -238,7 +238,6 @@ Constraints:
         prompt: enhancedPrompt,
         size: (args.size || '1024x1536') as any,
         quality: 'high' as any,
-        input_fidelity: 'high' as any,
         // @ts-ignore - These are valid parameters for gpt-image models
         output_format: 'png',
         background: 'transparent',
@@ -323,7 +322,6 @@ async function executeEditImage(args: { imageId: string; editPrompt: string; mas
       prompt: args.editPrompt,
       size: (args.size || '1024x1536') as any,
       quality: 'high' as any,
-      input_fidelity: 'high' as any,
       // @ts-ignore - These are valid parameters for gpt-image models
       output_format: 'png',
       background: 'transparent',
@@ -629,7 +627,7 @@ export async function invokeAgent(
     iteration++;
     
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview',
       contents: currentContents,
       config,
     });
