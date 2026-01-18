@@ -144,17 +144,17 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
 
   // Function to add an image to a specific page
   const addImageToPage = (imageUrl: string, pageNumber: number, replace: boolean = true) => {
-    // Ensure the page exists
-    const currentPages = pages
+    // Ensure the page exists - create pages if pageNumber is out of bounds
+    const currentPages = [...pages] // Create a copy to avoid mutating state directly
     while (currentPages.length < pageNumber) {
       const newPageY = currentPages.length * (PAGE_HEIGHT + PAGE_MARGIN)
       currentPages.push({ id: currentPages.length + 1, y: newPageY })
     }
     if (currentPages.length > pages.length) {
-      setPages([...currentPages])
+      setPages(currentPages)
     }
     
-    // Get the page's Y position
+    // Get the page's Y position - handle both existing and newly created pages
     const page = currentPages.find(p => p.id === pageNumber) || currentPages[pageNumber - 1]
     const pageY = page ? page.y : (pageNumber - 1) * (PAGE_HEIGHT + PAGE_MARGIN)
     

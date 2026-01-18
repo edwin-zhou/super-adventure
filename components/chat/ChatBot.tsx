@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Bot, Minimize2, X, Plus, Upload, Link, Youtube, Loader2, Download, RotateCcw, AudioLines, Square } from 'lucide-react'
+import { Send, Bot, Minimize2, X, Plus, Upload, Link, Youtube, Loader2, Download, RotateCcw, AudioLines, Square, FileText } from 'lucide-react'
 import { useVoiceAgent } from '@/hooks/useVoiceAgent'
 import { useWhiteboardStore } from '@/stores/useWhiteboardStore'
 import ReactMarkdown from 'react-markdown'
@@ -569,6 +569,20 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
 
   // Check for YouTube URL in input
   const inputHasYoutube = containsYoutubeUrl(input)
+  
+  // Check if chat is empty (only has the initial welcome message)
+  const isChatEmpty = messages.length === 1 && messages[0].id === '1'
+  
+  // Handler for generating notes from video
+  const handleGenerateNotes = () => {
+    if (pendingVideos.length > 0) {
+      const videoCount = pendingVideos.length
+      const presetMessage = videoCount === 1
+        ? `Create comprehensive study notes from this video. Include all key concepts, definitions, equations, diagrams, examples, and important points. Organize the notes clearly with headings and sections.`
+        : `Create comprehensive study notes from these ${videoCount} videos. Include all key concepts, definitions, equations, diagrams, examples, and important points from each video. Organize the notes clearly with headings and sections.`
+      handleSend(presetMessage)
+    }
+  }
 
   if (isMinimized) {
     return (
@@ -1027,7 +1041,7 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
             disabled={isGenerating || isVoiceMode}
           />
           
-          {/* Voice/Stop/Send Button */}
+          {/* Voice/Stop/Send/Notes Button */}
           {isVoiceMode ? (
             // Stop button - exits voice mode
             <Button
@@ -1036,6 +1050,20 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
               title="Stop voice mode"
             >
               <Square size={18} />
+            </Button>
+          ) : isChatEmpty && pendingVideos.length > 0 && !input.trim() ? (
+            // Notes button - when chat is empty and videos are available
+            <Button
+              onClick={handleGenerateNotes}
+              disabled={isGenerating}
+              className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500"
+              title={`Generate study notes from ${pendingVideos.length === 1 ? 'this video' : `these ${pendingVideos.length} videos`}`}
+            >
+              {isGenerating ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : (
+                <FileText size={18} />
+              )}
             </Button>
           ) : input.trim() || pendingVideos.length > 0 ? (
             // Send button - when there's text or videos
