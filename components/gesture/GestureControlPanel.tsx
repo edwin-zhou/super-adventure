@@ -26,14 +26,15 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
   const lastGestureTimeRef = useRef<{ [key: string]: number }>({})
   const palmPositionHistoryRef = useRef<Array<{ x: number; y: number; timestamp: number }>>([])
   const palmSwipeHistoryRef = useRef<Array<{ x: number; y: number; timestamp: number }>>([])
-  const palmSwipeVerticalHistoryRef = useRef<Array<{ x: number; y: number; timestamp: number }>>([])
+  const snapHistoryRef = useRef<Array<{ distance: number; timestamp: number }>>([])
   const gestureDebounceMs = 1500 // 1.5 second debounce for zoom gestures
   const scrollDebounceMs = 1500 // 1.5 second debounce for scroll gestures
   const PINCH_THRESHOLD = 0.08 // Distance threshold for detecting OK gesture (increased for better detection)
   const SWIPE_THRESHOLD = 0.15 // Minimum horizontal movement distance for swipe detection
   const SWIPE_TIME_WINDOW = 500 // Time window in ms to track palm movement
   const PALM_SWIPE_THRESHOLD = 0.12 // Minimum horizontal movement for whole palm swipe (no pinch required)
-  const PALM_SWIPE_VERTICAL_THRESHOLD = 0.12 // Minimum vertical movement for whole palm swipe down (no pinch required)
+  const SNAP_THRESHOLD = 0.06 // Distance threshold for thumb-middle finger snap detection
+  const SNAP_TIME_WINDOW = 300 // Time window in ms to detect quick snap motion
   
   const viewport = useWhiteboardStore((state) => state.viewport)
   const setViewport = useWhiteboardStore((state) => state.setViewport)
@@ -60,6 +61,55 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
     
     // If distance is below threshold, it's an OK gesture (pinch)
     return distance < PINCH_THRESHOLD
+  }, [])
+
+  // Custom snap gesture detection (thumb-middle finger snap)
+  const detectSnapGesture = useCallback((landmarks: any) => {
+    if (!landmarks || landmarks.length === 0) return false
+    
+    // Get thumb tip (landmark 4) and middle fingertip (landmark 12)
+    const thumbTip = landmarks[4]
+    const middleTip = landmarks[12]
+    const palm = landmarks[0] // Wrist/palm base for movement tracking
+    
+    if (!thumbTip || !middleTip || !palm) return false
+    
+    // Calculate 3D distance between thumb tip and middle fingertip
+    const thumbMiddleDistance = Math.sqrt(
+      Math.pow(thumbTip.x - middleTip.x, 2) +
+      Math.pow(thumbTip.y - middleTip.y, 2) +
+      Math.pow(thumbTip.z - middleTip.z, 2)
+    )
+    
+    // Track distance over time to detect quick snap motion
+    const now = Date.now()
+    snapHistoryRef.current.push({ distance: thumbMiddleDistance, timestamp: now })
+    
+    // Remove old entries outside time window
+    snapHistoryRef.current = snapHistoryRef.current.filter(
+      entry => now - entry.timestamp <= SNAP_TIME_WINDOW
+    )
+    
+    // Need at least 3 positions to detect snap motion (close, then separate)
+    if (snapHistoryRef.current.length < 3) return false
+    
+    // Detect snap: fingers come close together (below threshold) then separate
+    // Check if distance was below threshold recently and is now increasing
+    const recentDistances = snapHistoryRef.current.map(e => e.distance)
+    const minDistance = Math.min(...recentDistances)
+    const maxDistance = Math.max(...recentDistances)
+    
+    // Snap detected if:
+    // 1. Fingers came close (min distance below threshold)
+    // 2. Then separated (current distance > min distance + some margin)
+    // 3. This happened quickly (within time window)
+    if (minDistance < SNAP_THRESHOLD && thumbMiddleDistance > minDistance + 0.05) {
+      // Clear history after detecting snap
+      snapHistoryRef.current = []
+      return true
+    }
+    
+    return false
   }, [])
 
   // Custom whole palm swipe detection (no pinch required - side of palm movement)
@@ -96,47 +146,6 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
         return 'Palm_Swipe_Right' // Moving right
       } else {
         return 'Palm_Swipe_Left' // Moving left
-      }
-    }
-    
-    return null
-  }, [])
-
-  // Custom whole palm swipe down detection (no pinch required - vertical palm movement)
-  const detectPalmSwipeDown = useCallback((landmarks: any) => {
-    if (!landmarks || landmarks.length === 0) return null
-    
-    // Get palm/wrist base (landmark 0) - side of the palm
-    const palm = landmarks[0]
-    
-    if (!palm) return null
-    
-    // Track palm movement over time (no pinch check needed)
-    const now = Date.now()
-    const currentPalmPos = { x: palm.x, y: palm.y, timestamp: now }
-    
-    // Add current position to history
-    palmSwipeVerticalHistoryRef.current.push(currentPalmPos)
-    
-    // Remove old positions outside time window
-    palmSwipeVerticalHistoryRef.current = palmSwipeVerticalHistoryRef.current.filter(
-      pos => now - pos.timestamp <= SWIPE_TIME_WINDOW
-    )
-    
-    // Need at least 2 positions to detect movement
-    if (palmSwipeVerticalHistoryRef.current.length < 2) return null
-    
-    // Calculate vertical movement of the palm (Y-axis)
-    const oldestPos = palmSwipeVerticalHistoryRef.current[0]
-    const verticalMovement = currentPalmPos.y - oldestPos.y
-    
-    // Detect swipe direction based on vertical movement
-    // Note: In screen coordinates, Y increases downward, so positive movement = down
-    if (Math.abs(verticalMovement) >= PALM_SWIPE_VERTICAL_THRESHOLD) {
-      if (verticalMovement > 0) {
-        return 'Palm_Swipe_Down' // Moving down
-      } else {
-        return 'Palm_Swipe_Up' // Moving up
       }
     }
     
@@ -343,13 +352,12 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
     const now = Date.now()
     const lastTime = lastGestureTimeRef.current[gesture] || 0
     
-    // Video control and swipe gestures execute immediately (no debouncing)
+    // Video control, swipe, and snap gestures execute immediately (no debouncing)
     const isVideoGesture = gesture === 'Open_Palm' || gesture === 'Closed_Fist'
-    const isSwipeGesture = gesture === 'Swipe_Left' || gesture === 'Swipe_Right' || 
-                           gesture === 'Palm_Swipe_Left' || gesture === 'Palm_Swipe_Right' ||
-                           gesture === 'Palm_Swipe_Down' || gesture === 'Palm_Swipe_Up'
+    const isSwipeGesture = gesture === 'Swipe_Left' || gesture === 'Swipe_Right' || gesture === 'Palm_Swipe_Left' || gesture === 'Palm_Swipe_Right'
+    const isSnapGesture = gesture === 'Snap_Gesture'
     
-    if (!isVideoGesture && !isSwipeGesture) {
+    if (!isVideoGesture && !isSwipeGesture && !isSnapGesture) {
       // Determine debounce time based on gesture type
       const isScrollGesture = gesture === 'Pointing_Up' || gesture === 'Thumb_Down'
       const debounceTime = isScrollGesture ? scrollDebounceMs : gestureDebounceMs
@@ -392,12 +400,6 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
       case 'Closed_Fist':  // ✊ Closed Fist → Pause video (immediate, no cooldown)
         handlePauseVideo()
         break
-      case 'Palm_Swipe_Down':  // 👇 Whole Palm Swipe Down (vertical, no pinch) → Disable camera/gesture control (immediate, no cooldown)
-        onClose()
-        break
-      case 'Palm_Swipe_Up':  // 👆 Whole Palm Swipe Up (vertical, no pinch) → Currently unused
-        // Can be mapped to a future action if needed
-        break
       case 'Palm_Swipe_Left':  // 👈 Whole Palm Swipe Left (side of palm, no pinch) → Enable/Show video player (immediate, no cooldown)
         handleShowVideoPlayer()
         break
@@ -409,6 +411,9 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
         break
       case 'Swipe_Left':  // 👈 Swipe Left (pinch + move left) → Hide video player (immediate, no cooldown)
         handleHideVideoPlayer()
+        break
+      case 'Snap_Gesture':  // 👌 Snap Gesture (thumb-middle finger snap) → Disable camera/gesture control (immediate, no cooldown)
+        onClose()
         break
     }
   }, [handleZoomIn, handleZoomOut, handleScrollUp, handleScrollDown, handlePlayVideo, handlePauseVideo, handleHideVideoPlayer, handleShowVideoPlayer, onClose])
@@ -486,14 +491,14 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
         // Check for custom gestures - PRIORITY DETECTION
         let customGestureDetected = false
         if (results.landmarks && results.landmarks.length > 0) {
-          // First check for whole palm swipe down (vertical movement - no pinch required)
-          const palmSwipeVertical = detectPalmSwipeDown(results.landmarks[0])
-          if (palmSwipeVertical) {
-            setGestureDetected(palmSwipeVertical)
-            triggerGestureAction(palmSwipeVertical)
+          // First check for snap gesture (thumb-middle finger snap) - HIGHEST PRIORITY
+          const isSnap = detectSnapGesture(results.landmarks[0])
+          if (isSnap) {
+            setGestureDetected('Snap_Gesture')
+            triggerGestureAction('Snap_Gesture')
             customGestureDetected = true
           } else {
-            // If not vertical swiping, check for horizontal whole palm swipe (no pinch required - side of palm movement)
+            // If not snapping, check for whole palm swipe (no pinch required - side of palm movement)
             const palmSwipeDirection = detectPalmSwipe(results.landmarks[0])
             if (palmSwipeDirection) {
               setGestureDetected(palmSwipeDirection)
@@ -565,7 +570,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
     }
     
     animationFrameRef.current = requestAnimationFrame(detectGestures)
-  }, [isCameraOn, triggerGestureAction, detectOKGesture, detectZeroGesture, detectHorizontalSwipe])
+  }, [isCameraOn, triggerGestureAction, detectOKGesture, detectZeroGesture, detectHorizontalSwipe, detectPalmSwipe, detectSnapGesture])
 
   const startCamera = useCallback(async () => {
     try {
@@ -612,7 +617,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
     // Clear palm position history when camera stops
     palmPositionHistoryRef.current = []
     palmSwipeHistoryRef.current = []
-    palmSwipeVerticalHistoryRef.current = []
+    snapHistoryRef.current = []
   }, [])
 
   const toggleCamera = () => {
