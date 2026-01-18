@@ -49,6 +49,7 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
   isChatbotOpen: false,
   shouldActivateVoice: false,
   videoPlayerTimestamp: null,
+  customGestures: [],
   lassoMaskContext: null,
 
   // Tool actions
@@ -66,6 +67,12 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
   setChatbotOpen: (isOpen: boolean) => set({ isChatbotOpen: isOpen }),
   setShouldActivateVoice: (shouldActivate: boolean) => set({ shouldActivateVoice: shouldActivate }),
   setVideoPlayerTimestamp: (timestamp: number | null) => set({ videoPlayerTimestamp: timestamp }),
+  addCustomGesture: (gesture) => set((state) => ({ 
+    customGestures: [...state.customGestures, gesture] 
+  })),
+  removeCustomGesture: (id) => set((state) => ({ 
+    customGestures: state.customGestures.filter(g => g.id !== id) 
+  })),
 
   // Element actions
   addElement: (element: WhiteboardElement) =>

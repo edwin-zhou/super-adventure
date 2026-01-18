@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { X, Video, VideoOff, Hand, Minimize2, Maximize2 } from 'lucide-react'
+import { X, Video, VideoOff, Hand, Minimize2, Maximize2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useWhiteboardStore } from '@/stores/useWhiteboardStore'
 import { GestureRecognizer, FilesetResolver, DrawingUtils } from '@mediapipe/tasks-vision'
+import { AddGestureModal } from './AddGestureModal'
 
 interface GestureControlPanelProps {
   isEnabled: boolean
@@ -18,6 +19,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
   const [isCompact, setIsCompact] = useState(false)
   const [handsDetected, setHandsDetected] = useState(0)
   const [gestureCooldown, setGestureCooldown] = useState<string | null>(null)
+  const [showAddGestureModal, setShowAddGestureModal] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -47,6 +49,11 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
   const setVideoPlayerUrl = useWhiteboardStore((state) => state.setVideoPlayerUrl)
   const setChatbotOpen = useWhiteboardStore((state) => state.setChatbotOpen)
   const setShouldActivateVoice = useWhiteboardStore((state) => state.setShouldActivateVoice)
+  const customGestures = useWhiteboardStore((state) => state.customGestures)
+  
+  // Store custom gesture detection functions
+  const customGestureDetectorsRef = useRef<Map<string, (landmarks: any) => boolean>>(new Map())
+  const customGestureActionsRef = useRef<Map<string, () => void>>(new Map())
 
   // Custom OK gesture detection based on thumb-index pinch
   const detectOKGesture = useCallback((landmarks: any) => {
@@ -473,6 +480,88 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
     setShouldActivateVoice(true)
   }, [setChatbotOpen, setShouldActivateVoice])
 
+  // Compile custom gestures into detection and action functions
+  useEffect(() => {
+    customGestureDetectorsRef.current.clear()
+    customGestureActionsRef.current.clear()
+
+    customGestures.forEach((gesture) => {
+      try {
+        // Create a safe context with available functions
+        const context = {
+          handleZoomIn,
+          handleZoomOut,
+          handleScrollUp,
+          handleScrollDown,
+          handlePlayVideo,
+          handlePauseVideo,
+          handleShowVideoPlayer,
+          handleHideVideoPlayer,
+          handleOpenYoutube,
+          handlePasteLink,
+          handleOpenChatbotWithVoice,
+          setVideoPlayerOpen,
+          setVideoPlayerUrl,
+          resetViewport,
+          viewport,
+          window,
+          navigator,
+          Math,
+        }
+
+        // Compile detection function - wrap the code properly
+        const detectionFuncBody = `
+          ${gesture.detectionCode};
+          return detect(landmarks);
+        `
+        const detectionFunc = new Function('landmarks', 'context', `
+          const { Math } = context;
+          ${detectionFuncBody}
+        `)
+
+        // Compile action function - wrap the code properly  
+        const actionFuncBody = `
+          ${gesture.actionCode};
+          return action();
+        `
+        const actionFunc = new Function('context', `
+          const { 
+            handleZoomIn, handleZoomOut, handleScrollUp, handleScrollDown, 
+            handlePlayVideo, handlePauseVideo, handleShowVideoPlayer, handleHideVideoPlayer,
+            handleOpenYoutube, handlePasteLink, handleOpenChatbotWithVoice,
+            setVideoPlayerOpen, setVideoPlayerUrl, resetViewport, viewport, window, navigator, Math
+          } = context;
+          ${actionFuncBody}
+        `)
+
+        // Store compiled functions
+        customGestureDetectorsRef.current.set(
+          gesture.id,
+          (landmarks: any) => {
+            try {
+              return detectionFunc(landmarks, context)
+            } catch (err) {
+              console.error(`Detection error for ${gesture.name}:`, err)
+              return false
+            }
+          }
+        )
+        customGestureActionsRef.current.set(
+          gesture.id,
+          () => {
+            try {
+              actionFunc(context)
+            } catch (err) {
+              console.error(`Action error for ${gesture.name}:`, err)
+            }
+          }
+        )
+      } catch (error) {
+        console.error(`Error compiling gesture ${gesture.name}:`, error)
+      }
+    })
+  }, [customGestures, handleZoomIn, handleZoomOut, handleScrollUp, handleScrollDown, handlePlayVideo, handlePauseVideo, handleShowVideoPlayer, handleHideVideoPlayer, handleOpenYoutube, handlePasteLink, handleOpenChatbotWithVoice, setVideoPlayerOpen, setVideoPlayerUrl, resetViewport, viewport])
+
   // Trigger action based on detected gesture with debouncing
   const triggerGestureAction = useCallback((gesture: string) => {
     const now = Date.now()
@@ -628,6 +717,36 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
         // Check for custom gestures - PRIORITY DETECTION
         let customGestureDetected = false
         if (results.landmarks && results.landmarks.length > 0) {
+          // Check all custom gestures first
+          for (const [gestureId, detectFunc] of customGestureDetectorsRef.current) {
+            try {
+              if (detectFunc(results.landmarks[0])) {
+                const gesture = customGestures.find(g => g.id === gestureId)
+                if (gesture) {
+                  setGestureDetected(`Custom: ${gesture.name}`)
+                  // Execute custom action
+                  const actionFunc = customGestureActionsRef.current.get(gestureId)
+                  if (actionFunc) {
+                    // Check cooldown
+                    const now = Date.now()
+                    const lastTime = lastGestureTimeRef.current[gestureId] || 0
+                    if (now - lastTime >= gestureDebounceMs) {
+                      actionFunc()
+                      lastGestureTimeRef.current[gestureId] = now
+                    }
+                  }
+                  customGestureDetected = true
+                  break
+                }
+              }
+            } catch (error) {
+              console.error(`Error detecting custom gesture ${gestureId}:`, error)
+            }
+          }
+        }
+        
+        // Check for built-in custom gestures - PRIORITY DETECTION
+        if (!customGestureDetected && results.landmarks && results.landmarks.length > 0) {
           // First check for snap gesture (thumb-middle finger snap) - HIGHEST PRIORITY
           const isSnap = detectSnapGesture(results.landmarks[0])
           if (isSnap) {
@@ -923,7 +1042,18 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
 
         {/* Gesture Commands */}
         <div className="mt-3">
-          <h4 className="text-xs font-semibold text-slate-400 mb-2">Available Gestures</h4>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-xs font-semibold text-slate-400">Available Gestures</h4>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setShowAddGestureModal(true)}
+              className="h-7 px-2 text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
+            >
+              <Plus size={14} className="mr-1" />
+              Add Gesture
+            </Button>
+          </div>
           <div className="space-y-2">
             <Button
               variant="outline"
@@ -1005,9 +1135,40 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
             >
               <span className="text-xs">✋ Disable Camera: Close Palm</span>
             </Button>
+            
+            {/* Custom Gestures */}
+            {customGestures.length > 0 && (
+              <>
+                <div className="border-t border-slate-600 my-2 pt-2">
+                  <p className="text-xs font-semibold text-slate-400 mb-2">Custom Gestures</p>
+                </div>
+                {customGestures.map((gesture) => (
+                  <Button
+                    key={gesture.id}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const actionFunc = customGestureActionsRef.current.get(gesture.id)
+                      if (actionFunc) {
+                        actionFunc()
+                      }
+                    }}
+                    className="w-full justify-start text-left bg-slate-900/50 border-slate-700 hover:bg-slate-800 text-white border-purple-500/50 hover:border-purple-500"
+                  >
+                    <span className="text-xs">✨ {gesture.name}: {gesture.description}</span>
+                  </Button>
+                ))}
+              </>
+            )}
           </div>
         </div>
       </div>
+      
+      {/* Add Gesture Modal */}
+      <AddGestureModal 
+        isOpen={showAddGestureModal} 
+        onClose={() => setShowAddGestureModal(false)} 
+      />
     </div>
   )
 }

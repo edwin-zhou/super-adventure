@@ -24,6 +24,7 @@ interface WhiteboardCanvasProps {
 
 export interface WhiteboardCanvasRef {
   addImageToPage: (imageUrl: string, pageNumber: number, replace?: boolean) => void
+  getStageRef: () => React.RefObject<Konva.Stage>
 }
 
 export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
@@ -229,6 +230,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
   // Expose addImageToPage to parent via ref
   useImperativeHandle(ref, () => ({
     addImageToPage,
+    getStageRef: () => stageRef,
   }), [pages, addElement, deleteElement, elements])
 
   // Handle click-to-create for text and sticky notes

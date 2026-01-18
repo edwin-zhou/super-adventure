@@ -6,6 +6,7 @@ import { Toolbar } from './toolbar/Toolbar'
 import { TopToolbar } from './toolbar/TopToolbar'
 import { ChatBot } from './chat/ChatBot'
 import { VideoPlayer } from './video/VideoPlayer'
+import { ExportButton } from './canvas/ExportButton'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { useImageDrop } from '@/hooks/useImageDrop'
 import { useWhiteboardStore } from '@/stores/useWhiteboardStore'
@@ -33,7 +34,10 @@ function App() {
   const [isDragging, setIsDragging] = useState(false)
   
   // Ref to access WhiteboardCanvas functions
-  const whiteboardRef = useRef<{ addImageToPage: (imageUrl: string, pageNumber: number, replace?: boolean) => void }>(null)
+  const whiteboardRef = useRef<{ 
+    addImageToPage: (imageUrl: string, pageNumber: number, replace?: boolean) => void
+    getStageRef: () => React.RefObject<any>
+  }>(null)
 
   const handleDragStart = (e: React.DragEvent) => {
     setIsDragging(true)
@@ -106,6 +110,12 @@ function App() {
       <Toolbar />
       <TopToolbar />
       <ChatBot onAddImageToPage={handleAddImageToPage} />
+      {whiteboardRef.current && (
+        <ExportButton 
+          stageRef={whiteboardRef.current.getStageRef()} 
+          isVideoPlayerOpen={isVideoPlayerOpen}
+        />
+      )}
     </div>
   )
 

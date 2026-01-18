@@ -141,7 +141,7 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file && file.type.startsWith('video/')) {
+    if (file) {
       const url = URL.createObjectURL(file)
       setVideoUrl(url)
       setShowUrlInput(false)
@@ -237,7 +237,7 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
             </div>
             <div>
               <h4 className="text-lg font-semibold text-white mb-2">No Video Loaded</h4>
-              <p className="text-sm text-slate-400 mb-6">Upload a video file or paste a YouTube/Vimeo URL</p>
+              <p className="text-sm text-slate-400 mb-6">Upload a video, image, or code file (.java, .js, .py, .r, .csv)</p>
             </div>
             <div className="flex flex-col gap-3">
               <Button
@@ -245,7 +245,7 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
                 className="bg-blue-600 hover:bg-blue-700"
               >
                 <Upload size={18} className="mr-2" />
-                Upload Video
+                Upload File
               </Button>
               <Button
                 onClick={() => setShowUrlInput(true)}
@@ -262,7 +262,7 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
         <input
           type="file"
           id="video-file-input"
-          accept="video/*"
+          accept="video/*,image/*,.java,.js,.jsx,.ts,.tsx,.py,.r,.R,.csv,.json,.txt,.md"
           className="hidden"
           onChange={handleFileUpload}
         />
@@ -287,7 +287,7 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
               }}
             />
             <p className="text-xs text-slate-400 mb-4">
-              Supports: YouTube, Vimeo, or direct video file URLs (.mp4, .webm, etc.)
+              Supports: YouTube, Vimeo, direct video URLs, or file URLs
             </p>
             <div className="flex gap-2 justify-end">
               <Button

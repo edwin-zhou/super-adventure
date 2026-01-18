@@ -194,6 +194,15 @@ export interface WhiteboardState {
   isChatbotOpen: boolean
   shouldActivateVoice: boolean
   
+  // Custom gestures
+  customGestures: Array<{
+    id: string
+    name: string
+    description: string
+    detectionCode: string
+    actionCode: string
+  }>
+  
   // Actions
   setTool: (tool: ToolType) => void
   setGestureControlEnabled: (enabled: boolean) => void
@@ -203,6 +212,8 @@ export interface WhiteboardState {
   setChatbotOpen: (isOpen: boolean) => void
   setShouldActivateVoice: (shouldActivate: boolean) => void
   setVideoPlayerTimestamp: (timestamp: number | null) => void
+  addCustomGesture: (gesture: { id: string; name: string; description: string; detectionCode: string; actionCode: string }) => void
+  removeCustomGesture: (id: string) => void
   
   // Element actions
   addElement: (element: WhiteboardElement) => void
