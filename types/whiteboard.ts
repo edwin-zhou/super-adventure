@@ -187,12 +187,14 @@ export interface WhiteboardState {
   // Video player
   isVideoPlayerOpen: boolean
   videoPlayerAction: 'play' | 'pause' | null
+  videoPlayerUrl: string | null
   
   // Actions
   setTool: (tool: ToolType) => void
   setGestureControlEnabled: (enabled: boolean) => void
   setVideoPlayerOpen: (isOpen: boolean) => void
   setVideoPlayerAction: (action: 'play' | 'pause' | null) => void
+  setVideoPlayerUrl: (url: string | null) => void
   
   // Element actions
   addElement: (element: WhiteboardElement) => void

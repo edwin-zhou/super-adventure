@@ -27,6 +27,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
   const palmPositionHistoryRef = useRef<Array<{ x: number; y: number; timestamp: number }>>([])
   const palmSwipeHistoryRef = useRef<Array<{ x: number; y: number; timestamp: number }>>([])
   const snapHistoryRef = useRef<Array<{ distance: number; timestamp: number }>>([])
+  const fistStateHistoryRef = useRef<Array<{ inFist: boolean; timestamp: number }>>([])
   const gestureDebounceMs = 1500 // 1.5 second debounce for zoom gestures
   const scrollDebounceMs = 1500 // 1.5 second debounce for scroll gestures
   const PINCH_THRESHOLD = 0.08 // Distance threshold for detecting OK gesture (increased for better detection)
@@ -35,12 +36,15 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
   const PALM_SWIPE_THRESHOLD = 0.12 // Minimum horizontal movement for whole palm swipe (no pinch required)
   const SNAP_THRESHOLD = 0.06 // Distance threshold for thumb-middle finger snap detection
   const SNAP_TIME_WINDOW = 300 // Time window in ms to detect quick snap motion
+  const FIST_HOLD_TIME = 400 // Minimum time in ms hand must be in fist position before snap can trigger
+  const videoControlDebounceMs = 1000 // 1 second cooldown for video play/pause gestures
   
   const viewport = useWhiteboardStore((state) => state.viewport)
   const setViewport = useWhiteboardStore((state) => state.setViewport)
   const resetViewport = useWhiteboardStore((state) => state.resetViewport)
   const setVideoPlayerOpen = useWhiteboardStore((state) => state.setVideoPlayerOpen)
   const setVideoPlayerAction = useWhiteboardStore((state) => state.setVideoPlayerAction)
+  const setVideoPlayerUrl = useWhiteboardStore((state) => state.setVideoPlayerUrl)
 
   // Custom OK gesture detection based on thumb-index pinch
   const detectOKGesture = useCallback((landmarks: any) => {
@@ -64,15 +68,84 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
   }, [])
 
   // Custom snap gesture detection (thumb-middle finger snap)
+  // Only triggers when in fist position (index, ring, pinky curled) and thumb-middle snap
   const detectSnapGesture = useCallback((landmarks: any) => {
     if (!landmarks || landmarks.length === 0) return false
     
-    // Get thumb tip (landmark 4) and middle fingertip (landmark 12)
+    // Get relevant landmarks
+    const wrist = landmarks[0]
     const thumbTip = landmarks[4]
+    const indexTip = landmarks[8]
+    const indexMcp = landmarks[5] // Index finger base
     const middleTip = landmarks[12]
-    const palm = landmarks[0] // Wrist/palm base for movement tracking
+    const middleMcp = landmarks[9] // Middle finger base
+    const ringTip = landmarks[16]
+    const ringMcp = landmarks[13] // Ring finger base
+    const pinkyTip = landmarks[20]
+    const pinkyMcp = landmarks[17] // Pinky finger base
     
-    if (!thumbTip || !middleTip || !palm) return false
+    if (!wrist || !thumbTip || !middleTip || !indexTip || !ringTip || !pinkyTip) return false
+    
+    // Helper function to check if a finger is curled (tip closer to wrist than base)
+    const isFingerCurled = (tip: any, mcp: any) => {
+      const tipToWrist = Math.sqrt(
+        Math.pow(tip.x - wrist.x, 2) +
+        Math.pow(tip.y - wrist.y, 2) +
+        Math.pow(tip.z - wrist.z, 2)
+      )
+      const mcpToWrist = Math.sqrt(
+        Math.pow(mcp.x - wrist.x, 2) +
+        Math.pow(mcp.y - wrist.y, 2) +
+        Math.pow(mcp.z - wrist.z, 2)
+      )
+      // Finger is curled if tip is closer to wrist than the base (MCP joint)
+      // Using 1.1 multiplier to allow some tolerance
+      return tipToWrist < mcpToWrist * 1.1
+    }
+    
+    // Check that index, ring, and pinky are curled (fist position)
+    const indexCurled = isFingerCurled(indexTip, indexMcp)
+    const ringCurled = isFingerCurled(ringTip, ringMcp)
+    const pinkyCurled = isFingerCurled(pinkyTip, pinkyMcp)
+    
+    // Require at least 2 out of 3 fingers to be curled (fist-like position)
+    const curledCount = [indexCurled, ringCurled, pinkyCurled].filter(Boolean).length
+    const inFistPosition = curledCount >= 2
+    
+    // Track fist state history to detect stable fist position
+    const now = Date.now()
+    fistStateHistoryRef.current.push({ inFist: inFistPosition, timestamp: now })
+    
+    // Remove old fist state entries (keep longer window for transition detection)
+    fistStateHistoryRef.current = fistStateHistoryRef.current.filter(
+      entry => now - entry.timestamp <= FIST_HOLD_TIME + 200
+    )
+    
+    if (!inFistPosition) {
+      // Not in fist position, clear snap history and return
+      snapHistoryRef.current = []
+      return false
+    }
+    
+    // Check if hand has been in fist position for minimum hold time
+    // This prevents triggering during transitions from Victory/other gestures
+    const fistHistory = fistStateHistoryRef.current
+    const oldestFistEntry = fistHistory.find(entry => entry.inFist)
+    if (!oldestFistEntry || (now - oldestFistEntry.timestamp) < FIST_HOLD_TIME) {
+      // Haven't been in fist long enough - might be transitioning from another gesture
+      return false
+    }
+    
+    // Also check that we haven't recently been in non-fist position
+    // If there's any non-fist state in recent history, we might be transitioning
+    const recentNonFist = fistHistory.some(
+      entry => !entry.inFist && (now - entry.timestamp) < FIST_HOLD_TIME
+    )
+    if (recentNonFist) {
+      // Recently transitioned from non-fist, wait for stable fist
+      snapHistoryRef.current = []
+      return false
+    }
     
     // Calculate 3D distance between thumb tip and middle fingertip
     const thumbMiddleDistance = Math.sqrt(
@@ -82,7 +155,6 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
     )
     
     // Track distance over time to detect quick snap motion
-    const now = Date.now()
     snapHistoryRef.current.push({ distance: thumbMiddleDistance, timestamp: now })
     
     // Remove old entries outside time window
@@ -94,18 +166,18 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
     if (snapHistoryRef.current.length < 3) return false
     
     // Detect snap: fingers come close together (below threshold) then separate
-    // Check if distance was below threshold recently and is now increasing
     const recentDistances = snapHistoryRef.current.map(e => e.distance)
     const minDistance = Math.min(...recentDistances)
-    const maxDistance = Math.max(...recentDistances)
     
     // Snap detected if:
-    // 1. Fingers came close (min distance below threshold)
-    // 2. Then separated (current distance > min distance + some margin)
-    // 3. This happened quickly (within time window)
+    // 1. Hand has been in stable fist position for FIST_HOLD_TIME (checked above)
+    // 2. Thumb and middle finger came close (min distance below threshold)
+    // 3. Then separated (current distance > min distance + margin)
+    // 4. This happened quickly (within time window)
     if (minDistance < SNAP_THRESHOLD && thumbMiddleDistance > minDistance + 0.05) {
       // Clear history after detecting snap
       snapHistoryRef.current = []
+      fistStateHistoryRef.current = []
       return true
     }
     
@@ -113,6 +185,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
   }, [])
 
   // Custom whole palm swipe detection (no pinch required - side of palm movement)
+  // Only triggers for primarily horizontal movement to avoid false triggers from up/down gestures
   const detectPalmSwipe = useCallback((landmarks: any) => {
     if (!landmarks || landmarks.length === 0) return null
     
@@ -133,15 +206,28 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
       pos => now - pos.timestamp <= SWIPE_TIME_WINDOW
     )
     
-    // Need at least 2 positions to detect movement
-    if (palmSwipeHistoryRef.current.length < 2) return null
+    // Need at least 5 positions to detect intentional swipe movement
+    if (palmSwipeHistoryRef.current.length < 5) return null
     
-    // Calculate horizontal movement of the palm
+    // Calculate horizontal and vertical movement of the palm
     const oldestPos = palmSwipeHistoryRef.current[0]
     const horizontalMovement = currentPalmPos.x - oldestPos.x
+    const verticalMovement = currentPalmPos.y - oldestPos.y
+    
+    const absHorizontal = Math.abs(horizontalMovement)
+    const absVertical = Math.abs(verticalMovement)
+    
+    // Require horizontal movement to be at least 2.5x larger than vertical
+    // This ensures only intentional horizontal swipes trigger, not diagonal/vertical movements
+    const isHorizontalDominant = absHorizontal > absVertical * 2.5
+    
+    // Also require minimal vertical movement (prevents diagonal swipes)
+    const hasMinimalVertical = absVertical < 0.08
     
     // Detect swipe direction based on horizontal movement
-    if (Math.abs(horizontalMovement) >= PALM_SWIPE_THRESHOLD) {
+    if (absHorizontal >= PALM_SWIPE_THRESHOLD && isHorizontalDominant && hasMinimalVertical) {
+      // Clear history after detecting swipe to prevent repeated triggers
+      palmSwipeHistoryRef.current = []
       if (horizontalMovement > 0) {
         return 'Palm_Swipe_Right' // Moving right
       } else {
@@ -153,6 +239,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
   }, [])
 
   // Custom horizontal swipe detection (pinch + palm movement) - kept for backward compatibility
+  // Only triggers for primarily horizontal movement to avoid false triggers from up/down gestures
   const detectHorizontalSwipe = useCallback((landmarks: any) => {
     if (!landmarks || landmarks.length === 0) return null
     
@@ -189,15 +276,28 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
       pos => now - pos.timestamp <= SWIPE_TIME_WINDOW
     )
     
-    // Need at least 2 positions to detect movement
-    if (palmPositionHistoryRef.current.length < 2) return null
+    // Need at least 5 positions to detect intentional swipe movement
+    if (palmPositionHistoryRef.current.length < 5) return null
     
-    // 3. Calculate horizontal movement
+    // 3. Calculate horizontal and vertical movement
     const oldestPos = palmPositionHistoryRef.current[0]
     const horizontalMovement = currentPalmPos.x - oldestPos.x
+    const verticalMovement = currentPalmPos.y - oldestPos.y
+    
+    const absHorizontal = Math.abs(horizontalMovement)
+    const absVertical = Math.abs(verticalMovement)
+    
+    // Require horizontal movement to be at least 2.5x larger than vertical
+    // This ensures only intentional horizontal swipes trigger, not diagonal/vertical movements
+    const isHorizontalDominant = absHorizontal > absVertical * 2.5
+    
+    // Also require minimal vertical movement (prevents diagonal swipes)
+    const hasMinimalVertical = absVertical < 0.08
     
     // 4. Detect swipe direction
-    if (Math.abs(horizontalMovement) >= SWIPE_THRESHOLD) {
+    if (absHorizontal >= SWIPE_THRESHOLD && isHorizontalDominant && hasMinimalVertical) {
+      // Clear history after detecting swipe to prevent repeated triggers
+      palmPositionHistoryRef.current = []
       if (horizontalMovement > 0) {
         return 'Swipe_Right' // Moving right
       } else {
@@ -347,20 +447,44 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
     resetViewport()
   }, [setVideoPlayerOpen, resetViewport])
 
+  const handleOpenYoutube = useCallback(() => {
+    window.open('https://www.youtube.com', '_blank')
+  }, [])
+
+  const handlePasteLink = useCallback(async () => {
+    try {
+      const clipboardText = await navigator.clipboard.readText()
+      if (clipboardText.trim()) {
+        // Open video player and set the URL
+        setVideoPlayerOpen(true)
+        setVideoPlayerUrl(clipboardText.trim())
+      }
+    } catch (error) {
+      console.error('Error reading clipboard:', error)
+      alert('Unable to read clipboard. Please check permissions.')
+    }
+  }, [setVideoPlayerOpen, setVideoPlayerUrl])
+
   // Trigger action based on detected gesture with debouncing
   const triggerGestureAction = useCallback((gesture: string) => {
     const now = Date.now()
     const lastTime = lastGestureTimeRef.current[gesture] || 0
     
-    // Video control, swipe, and snap gestures execute immediately (no debouncing)
-    const isVideoGesture = gesture === 'Open_Palm' || gesture === 'Closed_Fist'
+    // Swipe and snap gestures execute immediately (no debouncing)
     const isSwipeGesture = gesture === 'Swipe_Left' || gesture === 'Swipe_Right' || gesture === 'Palm_Swipe_Left' || gesture === 'Palm_Swipe_Right'
     const isSnapGesture = gesture === 'Snap_Gesture'
+    // Video control gestures have 1 second cooldown
+    const isVideoGesture = gesture === 'Open_Palm' || gesture === 'Closed_Fist'
     
-    if (!isVideoGesture && !isSwipeGesture && !isSnapGesture) {
+    if (!isSwipeGesture && !isSnapGesture) {
       // Determine debounce time based on gesture type
-      const isScrollGesture = gesture === 'Pointing_Up' || gesture === 'Thumb_Down'
-      const debounceTime = isScrollGesture ? scrollDebounceMs : gestureDebounceMs
+      let debounceTime: number
+      if (isVideoGesture) {
+        debounceTime = videoControlDebounceMs // 1 second for video play/pause
+      } else {
+        const isScrollGesture = gesture === 'Pointing_Up' || gesture === 'Thumb_Down'
+        debounceTime = isScrollGesture ? scrollDebounceMs : gestureDebounceMs
+      }
       
       // Check if enough time has passed since last trigger
       if (now - lastTime < debounceTime) {
@@ -370,7 +494,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
         return
       }
       
-      // Update last trigger time for non-video gestures
+      // Update last trigger time
       lastGestureTimeRef.current[gesture] = now
     }
     
@@ -382,11 +506,13 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
       case 'Zero_Gesture':  // ⭕ Custom Zero gesture (O-shape, not fist) → Zoom in by absolute 30% (1.5s cooldown, smooth animation)
       case 'OK_Gesture':  // 👌 Custom OK gesture (thumb-index pinch) → Zoom in by absolute 30% (1.5s cooldown, smooth animation)
       case 'Thumb_Up':
-      case 'ILoveYou':  // 👌 ILoveYou gesture → Zoom in by absolute 30% (1.5s cooldown, smooth animation)
         handleZoomIn()
         break
-      case 'Victory':  // ✌️ Victory gesture → Zoom out by absolute 30% (1.5s cooldown, smooth animation)
-        handleZoomOut()
+      case 'ILoveYou':  // 🤟 ILoveYou gesture → Open YouTube in new tab (1.5s cooldown)
+        handleOpenYoutube()
+        break
+      case 'Victory':  // ✌️ Victory gesture → Paste clipboard link to video player (1.5s cooldown)
+        handlePasteLink()
         break
       case 'Pointing_Up':  // ☝️ Pointing Up → Scroll up 30% (1.5s cooldown, smooth animation)
         handleScrollUp()
@@ -394,10 +520,10 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
       case 'Thumb_Down':  // 👎 Thumb Down → Scroll down 30% (1.5s cooldown, smooth animation)
         handleScrollDown()
         break
-      case 'Open_Palm':  // 🖐️ Open Palm → Play/Continue video (immediate, no cooldown)
+      case 'Open_Palm':  // 🖐️ Open Palm → Play/Continue video (1s cooldown)
         handlePlayVideo()
         break
-      case 'Closed_Fist':  // ✊ Closed Fist → Pause video (immediate, no cooldown)
+      case 'Closed_Fist':  // ✊ Closed Fist → Pause video (1s cooldown)
         handlePauseVideo()
         break
       case 'Palm_Swipe_Left':  // 👈 Whole Palm Swipe Left (side of palm, no pinch) → Enable/Show video player (immediate, no cooldown)
@@ -416,7 +542,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
         onClose()
         break
     }
-  }, [handleZoomIn, handleZoomOut, handleScrollUp, handleScrollDown, handlePlayVideo, handlePauseVideo, handleHideVideoPlayer, handleShowVideoPlayer, onClose])
+  }, [handleZoomIn, handlePasteLink, handleScrollUp, handleScrollDown, handlePlayVideo, handlePauseVideo, handleHideVideoPlayer, handleShowVideoPlayer, handleOpenYoutube, onClose])
 
   // Initialize MediaPipe Gesture Recognizer
   const initializeGestureRecognizer = useCallback(async () => {
@@ -454,7 +580,8 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
 
   // Detect gestures from video feed
   const detectGestures = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current || !gestureRecognizerRef.current || !isCameraOn) {
+    // Use streamRef instead of isCameraOn state to avoid stale closure issues
+    if (!videoRef.current || !canvasRef.current || !gestureRecognizerRef.current || !streamRef.current) {
       return
     }
 
@@ -570,9 +697,12 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
     }
     
     animationFrameRef.current = requestAnimationFrame(detectGestures)
-  }, [isCameraOn, triggerGestureAction, detectOKGesture, detectZeroGesture, detectHorizontalSwipe, detectPalmSwipe, detectSnapGesture])
+  }, [triggerGestureAction, detectOKGesture, detectZeroGesture, detectHorizontalSwipe, detectPalmSwipe, detectSnapGesture])
 
   const startCamera = useCallback(async () => {
+    // Guard: prevent re-initialization if stream already exists
+    if (streamRef.current) return
+    
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { width: 640, height: 480, facingMode: 'user' } 
@@ -618,6 +748,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
     palmPositionHistoryRef.current = []
     palmSwipeHistoryRef.current = []
     snapHistoryRef.current = []
+    fistStateHistoryRef.current = []
   }, [])
 
   const toggleCamera = () => {
@@ -787,18 +918,18 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
             <Button
               variant="outline"
               size="sm"
-              onClick={handleZoomIn}
+              onClick={handleOpenYoutube}
               className="w-full justify-start text-left bg-slate-900/50 border-slate-700 hover:bg-slate-800 text-white"
             >
-              <span className="text-xs">⭕ Zoom In 30%: Zero/OK Gesture</span>
+              <span className="text-xs">🤟 Open Youtube: ILY Gesture</span>
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={handleZoomOut}
+              onClick={handlePasteLink}
               className="w-full justify-start text-left bg-slate-900/50 border-slate-700 hover:bg-slate-800 text-white"
             >
-              <span className="text-xs">✌️ Zoom Out 30%: Victory Gesture</span>
+              <span className="text-xs">✌️ Paste Link: Victory Gesture</span>
             </Button>
             <Button
               variant="outline"
