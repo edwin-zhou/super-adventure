@@ -23,7 +23,7 @@ interface WhiteboardCanvasProps {
 }
 
 export interface WhiteboardCanvasRef {
-  addImageToPage: (imageUrl: string, pageNumber: number) => void
+  addImageToPage: (imageUrl: string, pageNumber: number, replace?: boolean) => void
 }
 
 export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
@@ -56,6 +56,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
     finishDrawing,
     addElement,
     updateElement,
+    deleteElement,
     setLassoMaskContext,
     clearLassoMaskContext,
   } = useWhiteboardStore()
@@ -142,7 +143,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
   }
 
   // Function to add an image to a specific page
-  const addImageToPage = (imageUrl: string, pageNumber: number) => {
+  const addImageToPage = (imageUrl: string, pageNumber: number, replace: boolean = true) => {
     // Ensure the page exists
     const currentPages = pages
     while (currentPages.length < pageNumber) {
@@ -156,6 +157,58 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
     // Get the page's Y position
     const page = currentPages.find(p => p.id === pageNumber) || currentPages[pageNumber - 1]
     const pageY = page ? page.y : (pageNumber - 1) * (PAGE_HEIGHT + PAGE_MARGIN)
+    
+    // If replace is true, delete all elements on this page
+    if (replace) {
+      const pageTop = pageY
+      const pageBottom = pageY + PAGE_HEIGHT
+      
+      // Find all elements that are on this page
+      const elementsToDelete = elements.filter((el) => {
+        // Get element bounds based on type
+        let elTop = el.y
+        let elBottom = el.y
+        
+        if (el.type === 'image') {
+          const imgEl = el as ImageElement
+          elTop = el.y
+          elBottom = el.y + (imgEl.height || 0)
+        } else if (el.type === 'rectangle' || el.type === 'sticky') {
+          const rectEl = el as any
+          elTop = el.y
+          elBottom = el.y + (rectEl.height || 0)
+        } else if (el.type === 'text') {
+          const textEl = el as TextElement
+          // Approximate text height (rough estimate)
+          elTop = el.y
+          elBottom = el.y + (textEl.fontSize || 16) * 1.5
+        } else if (el.type === 'circle') {
+          const circleEl = el as any
+          const radius = circleEl.radius || 0
+          elTop = el.y - radius
+          elBottom = el.y + radius
+        } else if (el.type === 'freehand' || el.type === 'line') {
+          const lineEl = el as any
+          if (lineEl.points && lineEl.points.length >= 2) {
+            // Find min and max Y from points
+            const yPoints = lineEl.points.filter((_: any, idx: number) => idx % 2 === 1)
+            elTop = el.y + Math.min(...yPoints)
+            elBottom = el.y + Math.max(...yPoints)
+          } else {
+            elTop = el.y
+            elBottom = el.y
+          }
+        }
+        
+        // Element is on this page if any part overlaps with the page bounds
+        return (elTop < pageBottom && elBottom > pageTop)
+      })
+      
+      // Delete all elements on this page
+      elementsToDelete.forEach((el) => {
+        deleteElement(el.id)
+      })
+    }
     
     // Create the image element to fill the page (centered)
     const imageElement: ImageElement = {
@@ -176,7 +229,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
   // Expose addImageToPage to parent via ref
   useImperativeHandle(ref, () => ({
     addImageToPage,
-  }), [pages, addElement])
+  }), [pages, addElement, deleteElement, elements])
 
   // Handle click-to-create for text and sticky notes
   const handleClickToCreate = (point: { x: number; y: number }) => {

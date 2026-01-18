@@ -174,6 +174,10 @@ const addToPageDeclaration = {
         type: Type.NUMBER,
         description: 'The page number (1, 2, 3, etc.) to add the image to. If the page doesn\'t exist, it will be created. Default is 1.',
       },
+      replace: {
+        type: Type.BOOLEAN,
+        description: 'If true (default), replace all existing content on the page with this image. If false, add the image to the page alongside existing content.',
+      },
     },
     required: ['imageId'],
   },
@@ -440,9 +444,10 @@ async function executeEditImageWithMask(args: { imageId: string; editPrompt: str
 }
 
 // Execute the add to page function
-async function executeAddToPage(args: { imageId: string; pageNumber?: number }): Promise<{ success: boolean; pageNumber: number; message: string; error?: string }> {
+async function executeAddToPage(args: { imageId: string; pageNumber?: number; replace?: boolean }): Promise<{ success: boolean; pageNumber: number; replace: boolean; message: string; error?: string }> {
   try {
     const pageNumber = args.pageNumber || 1;
+    const replace = args.replace !== undefined ? args.replace : true;
     
     // Verify the image exists
     const cached = imageCache.get(args.imageId);
@@ -450,6 +455,7 @@ async function executeAddToPage(args: { imageId: string; pageNumber?: number }):
       return {
         success: false,
         pageNumber,
+        replace,
         error: 'Image not found',
         message: `Could not find image with ID "${args.imageId}". Available IDs: ${Array.from(imageCache.keys()).join(', ') || 'none'}`,
       };
@@ -460,13 +466,15 @@ async function executeAddToPage(args: { imageId: string; pageNumber?: number }):
     return {
       success: true,
       pageNumber,
-      message: `Successfully queued image "${args.imageId}" to be added to page ${pageNumber}.`,
+      replace,
+      message: `Successfully queued image "${args.imageId}" to be ${replace ? 'replaced on' : 'added to'} page ${pageNumber}.`,
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return {
       success: false,
       pageNumber: args.pageNumber || 1,
+      replace: args.replace !== undefined ? args.replace : true,
       error: errorMessage,
       message: `Failed to add image to page: ${errorMessage}`,
     };
@@ -500,8 +508,10 @@ You have access to four main tools:
 4. **add_to_page**: Use this to add a generated image to a specific page on the whiteboard.
    - Use when the user asks to add, place, or put an image onto the whiteboard
    - Specify the pageNumber (1, 2, 3, etc.) - defaults to page 1
+   - By default (replace=true), replaces all existing content on the page with the new image
+   - Set replace=false if the user explicitly wants to add alongside existing content (e.g., "add to page 1 without replacing", "keep existing content")
    - Creates the page automatically if it doesn't exist
-   - Examples: "add these notes to page 2", "put the image on the whiteboard"
+   - Examples: "add these notes to page 2", "put the image on the whiteboard", "replace page 1 with this", "overwrite page 3"
 
 PERSONALIZED NOTES GENERATION:
 - When user asks for "notes", "summary", or "study guide" from video content:
@@ -522,7 +532,8 @@ DECISION GUIDE:
 - User wants something "like" existing images → use generate_image with referenceImageIds
 - User wants to modify entire image → use edit_image with imageId
 - User has selected a region with lasso and wants to edit it → use edit_image_with_mask (mask will be provided)
-- User wants to add image to whiteboard → use add_to_page with imageId and pageNumber
+- User wants to add image to whiteboard → use add_to_page with imageId and pageNumber (replace=true by default)
+- User explicitly wants to keep existing content → use add_to_page with imageId, pageNumber, and replace=false
 
 IMPORTANT: 
 - After using any image tool, do NOT include markdown image syntax like ![alt](url) in your response
@@ -542,7 +553,7 @@ export async function invokeAgent(
 ): Promise<{
   response: string;
   generatedImages?: Array<{ id: string; prompt: string; url: string }>;
-  whiteboardActions?: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number }>;
+  whiteboardActions?: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number; replace?: boolean }>;
   availableNoteStyleIds?: string[];
 }> {
   const ai = getGeminiClient();
@@ -598,7 +609,7 @@ export async function invokeAgent(
   const generatedImages: Array<{ id: string; prompt: string; url: string }> = [];
   
   // Track whiteboard actions to return to client
-  const whiteboardActions: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number }> = [];
+  const whiteboardActions: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number; replace?: boolean }> = [];
   
   // Function calling loop
   let currentContents = contents;
@@ -686,7 +697,7 @@ export async function invokeAgent(
             }
           }
         } else if (functionName === 'add_to_page') {
-          functionResult = await executeAddToPage(functionArgs as { imageId: string; pageNumber?: number });
+          functionResult = await executeAddToPage(functionArgs as { imageId: string; pageNumber?: number; replace?: boolean });
           
           // Track whiteboard action
           if (functionResult.success) {
@@ -698,6 +709,7 @@ export async function invokeAgent(
                 imageId,
                 imageUrl: cached.imageUrl,
                 pageNumber: functionResult.pageNumber,
+                replace: functionResult.replace,
               });
             }
           }

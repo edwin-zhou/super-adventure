@@ -72,7 +72,7 @@ interface NoteStyleSample {
 }
 
 interface ChatBotProps {
-  onAddImageToPage?: (imageUrl: string, pageNumber: number) => void
+  onAddImageToPage?: (imageUrl: string, pageNumber: number, replace?: boolean) => void
 }
 
 // Fetch video title from YouTube oEmbed API
@@ -173,7 +173,7 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
       if (result.whiteboardActions && result.whiteboardActions.length > 0 && onAddImageToPage) {
         for (const action of result.whiteboardActions) {
           if (action.type === 'add_full_page_image') {
-            onAddImageToPage(action.imageUrl, action.pageNumber)
+            onAddImageToPage(action.imageUrl, action.pageNumber, action.replace)
           }
         }
       }
@@ -354,7 +354,7 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
       if (result.whiteboardActions && result.whiteboardActions.length > 0 && onAddImageToPage) {
         for (const action of result.whiteboardActions) {
           if (action.type === 'add_full_page_image') {
-            onAddImageToPage(action.imageUrl, action.pageNumber)
+            onAddImageToPage(action.imageUrl, action.pageNumber, action.replace)
           }
         }
       }
