@@ -412,7 +412,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
       case 'Swipe_Left':  // 👈 Swipe Left (pinch + move left) → Hide video player (immediate, no cooldown)
         handleHideVideoPlayer()
         break
-      case 'Snap_Gesture':  // 👌 Snap Gesture (thumb-middle finger snap) → Disable camera/gesture control (immediate, no cooldown)
+      case 'Snap_Gesture':  // 👌 Snap Gesture (thumb-middle finger snap) → Disable camera/gesture control (ONLY gesture that disables camera, immediate, no cooldown)
         onClose()
         break
     }
