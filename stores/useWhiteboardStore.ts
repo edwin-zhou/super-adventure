@@ -46,6 +46,7 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
   isVideoPlayerOpen: false,
   videoPlayerAction: null,
   videoPlayerUrl: null,
+  videoPlayerTimestamp: null,
   lassoMaskContext: null,
 
   // Tool actions
@@ -58,6 +59,7 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
   setVideoPlayerOpen: (isOpen: boolean) => set({ isVideoPlayerOpen: isOpen }),
   setVideoPlayerAction: (action: 'play' | 'pause' | null) => set({ videoPlayerAction: action }),
   setVideoPlayerUrl: (url: string | null) => set({ videoPlayerUrl: url }),
+  setVideoPlayerTimestamp: (timestamp: number | null) => set({ videoPlayerTimestamp: timestamp }),
 
   // Element actions
   addElement: (element: WhiteboardElement) =>

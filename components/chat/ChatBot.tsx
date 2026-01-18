@@ -178,6 +178,16 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
         }
       }
 
+      // Handle video actions if any
+      if (result.videoActions && result.videoActions.length > 0) {
+        const { setVideoPlayerTimestamp } = useWhiteboardStore.getState()
+        for (const action of result.videoActions) {
+          if (action.type === 'seek_to_timestamp' && action.timestamp !== undefined) {
+            setVideoPlayerTimestamp(action.timestamp)
+          }
+        }
+      }
+
       setMessages((prev) =>
         prev.map((m) =>
           m.id === loadingMessage.id
@@ -355,6 +365,16 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
         for (const action of result.whiteboardActions) {
           if (action.type === 'add_full_page_image') {
             onAddImageToPage(action.imageUrl, action.pageNumber, action.replace)
+          }
+        }
+      }
+
+      // Handle video actions if any
+      if (result.videoActions && result.videoActions.length > 0) {
+        const { setVideoPlayerTimestamp } = useWhiteboardStore.getState()
+        for (const action of result.videoActions) {
+          if (action.type === 'seek_to_timestamp' && action.timestamp !== undefined) {
+            setVideoPlayerTimestamp(action.timestamp)
           }
         }
       }

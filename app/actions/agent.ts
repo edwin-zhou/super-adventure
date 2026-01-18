@@ -101,13 +101,13 @@ function imageDataToUrl(imageData: string, format: string = 'png'): string {
 // Define the study notes generation function declaration (Gemini format)
 const generateImageDeclaration = {
   name: 'generate_study_notes',
-  description: 'Generate NEW study notes or class notes based on educational content, video transcripts, or text descriptions. Creates handwritten-style notes with diagrams, equations, summaries, and organized content. IMPORTANT: The image generation tool does NOT have access to video content or conversation context - you must explicitly describe ALL content, concepts, equations, diagrams, and details that should appear in the notes. Note style templates are automatically included to match the user\'s preferred style. Use this when the user asks to create notes, generate study materials, summarize content, or create class notes from videos or text.',
+  description: 'Generate NEW study notes or class notes based on educational content, video transcripts, or text descriptions. Creates handwritten-style notes with diagrams, equations, summaries, and organized content. IMPORTANT: The image generation tool does NOT have access to video content or conversation context - you must explicitly describe ALL content, concepts, equations, diagrams, and details that should appear in the notes. Note style templates are automatically included to match the user\'s preferred style. Use this when the user asks to create notes, generate study materials, summarize content, or create class notes from videos or text. CRITICAL: Each call to this function generates ONE page. For most content, you should call this function MULTIPLE times to create multiple pages, with each page containing a small, focused, easily digestible amount of information.',
   parameters: {
     type: Type.OBJECT,
     properties: {
       prompt: {
         type: Type.STRING,
-        description: 'A COMPLETE and DETAILED description of the study notes to generate. Since the image tool has no access to video content or conversation context, you must explicitly include: the topic/subject, all key concepts, definitions, equations, formulas, diagrams, examples, step-by-step explanations, summaries, and organization structure. For video-based notes, extract and describe ALL main points, concepts, important details, examples shown, and any visual content. Be extremely specific about what educational content should appear in the notes.',
+        description: 'A focused description of ONE page of study notes to generate. Since the image tool has no access to video content or conversation context, you must explicitly include the specific content for THIS page. Each page should contain a SMALL, DIGESTIBLE amount of information - typically one main topic, concept, or section. Avoid cramming too much content onto a single page. For video-based notes, extract and describe the specific concepts, points, equations, or examples that belong on this particular page. Be extremely specific about what educational content should appear on this single page, keeping it focused and easy to read.',
       },
       size: {
         type: Type.STRING,
@@ -165,6 +165,22 @@ const addToPageDeclaration = {
       },
     },
     required: ['imageId'],
+  },
+};
+
+// Define the set video timestamp tool declaration (Gemini format)
+const setVideoTimestampDeclaration = {
+  name: 'set_video_timestamp',
+  description: 'Set the video playback to a specific timestamp. Use this when the user asks to jump to a specific time in the video, seek to a timestamp, go to a certain minute/second, or reference a specific part of the video. The timestamp should be provided in seconds (e.g., 120 for 2 minutes, 90.5 for 1 minute 30.5 seconds).',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      timestamp: {
+        type: Type.NUMBER,
+        description: 'The timestamp in seconds to seek to. For example: 60 for 1 minute, 120 for 2 minutes, 90.5 for 1 minute 30.5 seconds. Must be a non-negative number.',
+      },
+    },
+    required: ['timestamp'],
   },
 };
 
@@ -400,30 +416,61 @@ async function executeAddToPage(args: { imageId: string; pageNumber?: number; re
   }
 }
 
+// Execute the set video timestamp function
+async function executeSetVideoTimestamp(args: { timestamp: number }): Promise<{ success: boolean; timestamp: number; message: string; error?: string }> {
+  try {
+    const timestamp = Math.max(0, args.timestamp); // Ensure non-negative
+    
+    // The actual video seeking will be handled client-side
+    // We just return the action for the client to execute
+    return {
+      success: true,
+      timestamp,
+      message: `Successfully queued video to seek to ${timestamp} seconds (${Math.floor(timestamp / 60)}:${String(Math.floor(timestamp % 60)).padStart(2, '0')}).`,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return {
+      success: false,
+      timestamp: args.timestamp,
+      error: errorMessage,
+      message: `Failed to set video timestamp: ${errorMessage}`,
+    };
+  }
+}
+
 // System prompt for the agent
 const SYSTEM_PROMPT = `You are a helpful study assistant for an interactive whiteboard application designed for creating and organizing class notes and study materials.
 You help students understand educational content, answer questions, create comprehensive study notes, and organize learning materials.
 
-You have access to three main tools for creating and managing study notes:
+You have access to four main tools for creating and managing study notes and controlling video playback:
 
 1. **generate_study_notes**: Use this to create NEW study notes or class notes from educational content.
    - Use when the user asks to "create notes", "generate study guide", "summarize", "make notes from this video", or "create class notes"
    - ALWAYS use size "1024x1536" (portrait, full-page) for study notes to fit whiteboard pages properly
    - CRITICAL: The image generation tool does NOT have access to video content, conversation history, or examples shown in videos. You MUST explicitly describe ALL content that should appear in the notes.
-   - For video-based notes: Extract and explicitly describe ALL key concepts, main points, important details, equations, formulas, diagrams, examples, step-by-step explanations, and visual content from the video
+   - **MULTI-PAGE IS THE DEFAULT**: For MOST content, you should call this function MULTIPLE times to create multiple pages. Each page should contain a SMALL, FOCUSED, EASILY DIGESTIBLE amount of information. Avoid cramming too much content onto a single page.
+   - Each page should typically focus on: one main topic, one key concept, one section, one example, or one set of related formulas. Keep pages focused and readable.
+   - For video-based notes: Extract and explicitly describe ALL key concepts, main points, important details, equations, formulas, diagrams, examples, step-by-step explanations, and visual content from the video, then split them across multiple pages logically.
    - Note style templates are automatically included - you don't need to specify them. The tool will match the user's preferred style automatically.
-   - Create comprehensive, well-organized notes with clear sections, headings, equations, diagrams, and summaries
-   - Be extremely detailed in your prompt - include specific concepts, definitions, formulas, examples, and explanations that should appear
-   - **MULTI-PAGE SUPPORT**: If content is extensive, call this tool multiple times with different content sections, then use add_notes_to_page to place each on sequential pages (1, 2, 3, etc.)
+   - Create well-organized notes with clear sections, headings, equations, diagrams, and summaries - but spread across multiple pages for better readability
+   - Be extremely detailed in your prompt for EACH page - include specific concepts, definitions, formulas, examples, and explanations that should appear on THAT particular page
+   - **MULTI-PAGE WORKFLOW**: 
+     * Call generate_study_notes multiple times (once per page) with different, focused content sections
+     * Each call should focus on a specific subset of content that fits well on one page
+     * Then use add_notes_to_page to place each generated page sequentially (page 1, page 2, page 3, etc.)
+     * Organize content logically across pages (e.g., page 1: introduction and overview, page 2: first key concept, page 3: second key concept, page 4: examples, page 5: summary)
    - Examples: "create notes from this video", "generate a study guide on calculus", "make notes in my style"
    
-   **PROMPT STRUCTURE BEST PRACTICES**:
-   - Organize content in clear sections with headings (Introduction, Key Concepts, Formulas, Examples, Summary)
+   **PROMPT STRUCTURE BEST PRACTICES** (per page):
+   - Each page should have a clear, focused topic or section
+   - Organize content with headings, but keep it concise for one page
    - For important equations or formulas, write them out explicitly and clearly
    - For text that must appear verbatim (definitions, theorems), put it in "quotes"
-   - Specify visual organization: "Title at top in large text, then 3 sections with bullet points, diagrams on the right side"
+   - Specify visual organization: "Title at top in large text, then 2-3 key points with bullet points, one diagram on the right side"
    - Be specific about layout: "heading in bold, key terms underlined, equations centered"
    - Describe diagrams in detail: "draw a labeled diagram showing [specific elements and their relationships]"
+   - Remember: Less is more - each page should be easy to digest at a glance
 
 2. **edit_study_notes**: Use this to EDIT or UPDATE existing study notes.
    - Use when the user wants to correct, refine, add content, or improve their notes
@@ -447,6 +494,12 @@ You have access to three main tools for creating and managing study notes:
    - For multi-page notes, use sequential page numbers (1, 2, 3, etc.) to organize content across pages
    - Examples: "add these notes to page 2", "put the notes on the whiteboard", "replace page 1 with these notes"
 
+4. **set_video_timestamp**: Use this to set the video playback to a specific timestamp.
+   - Use when the user asks to jump to a specific time, seek to a timestamp, go to a certain minute/second, or reference a specific part of the video
+   - The timestamp should be provided in seconds (e.g., 120 for 2 minutes, 90.5 for 1 minute 30.5 seconds)
+   - Convert time formats to seconds: "2:30" = 150 seconds, "1 minute 30 seconds" = 90 seconds, "3:45" = 225 seconds
+   - Examples: "jump to 2 minutes", "go to 1:30", "seek to 90 seconds", "show me what happens at 3 minutes"
+
 STUDY NOTES GENERATION WORKFLOW:
 - When user asks for notes, summaries, or study guides from video/text content:
   1. ALWAYS use generate_study_notes with size "1024x1536" (portrait, full-page)
@@ -457,12 +510,17 @@ STUDY NOTES GENERATION WORKFLOW:
      - All examples, step-by-step solutions, or explanations
      - All important points, summaries, and takeaways
      - Clear headings, sections, and organization structure
-  3. Be extremely detailed and specific in your prompt - include all educational content from the video/text that should appear in the notes
-  4. **MULTI-PAGE NOTES**: If the content is extensive and would be too dense for a single page, split it across multiple pages:
-     - Call generate_study_notes multiple times with different content sections
-     - Organize content logically across pages (e.g., page 1: introduction and key concepts, page 2: detailed explanations, page 3: examples and practice problems)
-     - Each call should focus on a specific subset of the content that fits well on one page
+  3. **MULTI-PAGE IS THE DEFAULT**: For MOST content, split it across MULTIPLE pages. Each page should contain a SMALL, FOCUSED, EASILY DIGESTIBLE amount of information:
+     - Analyze the content and identify logical breakpoints (topics, concepts, sections, examples)
+     - Plan how to split content across 3-10+ pages (depending on content volume)
+     - Each page should focus on ONE main idea, concept, or related set of information
+     - Avoid cramming multiple major topics onto a single page
+     - Call generate_study_notes multiple times (once per page) with focused content for each page
+     - Organize content logically across pages (e.g., page 1: introduction/overview, page 2: first key concept with definition, page 3: first key concept examples, page 4: second key concept, page 5: second key concept examples, page 6: formulas summary, page 7: practice problems, etc.)
+     - Each call should focus on a specific subset of content that fits comfortably on one page without being overwhelming
      - Use add_notes_to_page to place each generated page sequentially (page 1, page 2, page 3, etc.)
+  4. Be extremely detailed and specific in your prompt for EACH page - include all educational content from the video/text that should appear on THAT particular page
+  5. Remember: Better to have more pages with digestible content than fewer pages that are overwhelming
 - If user asks to add notes to whiteboard:
   - Use add_notes_to_page tool with the generated notes ID
   - Can specify which page (or default to page 1)
@@ -472,11 +530,15 @@ STUDY NOTES GENERATION WORKFLOW:
 
 DECISION GUIDE:
 - User wants notes/summary from video or text → use generate_study_notes (size: 1024x1536). Remember: explicitly describe ALL content since the tool has no video context. Note style templates are automatically included.
-  - If content is extensive, split across multiple pages by calling generate_study_notes multiple times with different content sections, then use add_notes_to_page with sequential page numbers
+  - **DEFAULT TO MULTI-PAGE**: For most content, split across multiple pages by calling generate_study_notes multiple times with different, focused content sections. Each page should contain a small, digestible amount of information. Then use add_notes_to_page with sequential page numbers to place each page.
+  - Only use a single page if the content is truly minimal (e.g., just one simple definition or one formula)
 - User wants to modify/correct existing notes → use edit_study_notes with imageId (mask automatically provided if region selected)
 - User wants to add notes to whiteboard → use add_notes_to_page with imageId and pageNumber (replace=true by default)
   - Pages are automatically created if they don't exist - use any page number (1, 2, 3, etc.)
 - User explicitly wants to keep existing content → use add_notes_to_page with replace=false
+- User wants to jump to a specific time in the video → use set_video_timestamp with timestamp in seconds
+  - Convert time formats: "2:30" = 150, "1 minute 30 seconds" = 90, "3:45" = 225
+  - Examples: "go to 2 minutes" → timestamp: 120, "jump to 1:30" → timestamp: 90, "seek to 3:45" → timestamp: 225
 
 IMPORTANT: 
 - After generating or editing notes, do NOT include markdown image syntax like ![alt](url) in your response
@@ -498,6 +560,7 @@ export async function invokeAgent(
   response: string;
   generatedImages?: Array<{ id: string; prompt: string; url: string }>;
   whiteboardActions?: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number; replace?: boolean }>;
+  videoActions?: Array<{ type: string; timestamp?: number }>;
   availableNoteStyleIds?: string[];
 }> {
   const ai = getGeminiClient();
@@ -542,7 +605,7 @@ export async function invokeAgent(
   // Configure the model with function declarations
   const config = {
     tools: [{
-      functionDeclarations: [generateImageDeclaration, editImageDeclaration, addToPageDeclaration],
+      functionDeclarations: [generateImageDeclaration, editImageDeclaration, addToPageDeclaration, setVideoTimestampDeclaration],
     }],
     systemInstruction: SYSTEM_PROMPT,
   };
@@ -552,6 +615,9 @@ export async function invokeAgent(
   
   // Track whiteboard actions to return to client
   const whiteboardActions: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number; replace?: boolean }> = [];
+  
+  // Track video actions to return to client
+  const videoActions: Array<{ type: string; timestamp?: number }> = [];
   
   // Function calling loop
   let currentContents = contents;
@@ -666,6 +732,16 @@ export async function invokeAgent(
               });
             }
           }
+        } else if (functionName === 'set_video_timestamp') {
+          functionResult = await executeSetVideoTimestamp(functionArgs as { timestamp: number });
+          
+          // Track video action
+          if (functionResult.success) {
+            videoActions.push({
+              type: 'seek_to_timestamp',
+              timestamp: functionResult.timestamp,
+            });
+          }
         } else {
           functionResult = { error: `Unknown function: ${functionName}` };
         }
@@ -737,6 +813,7 @@ export async function invokeAgent(
     response: finalResponse,
     generatedImages: generatedImages.length > 0 ? generatedImages : undefined,
     whiteboardActions: whiteboardActions.length > 0 ? whiteboardActions : undefined,
+    videoActions: videoActions.length > 0 ? videoActions : undefined,
     availableNoteStyleIds: availableNoteStyleIds.length > 0 ? availableNoteStyleIds : undefined,
   };
 }

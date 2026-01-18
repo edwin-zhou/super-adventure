@@ -188,6 +188,7 @@ export interface WhiteboardState {
   isVideoPlayerOpen: boolean
   videoPlayerAction: 'play' | 'pause' | null
   videoPlayerUrl: string | null
+  videoPlayerTimestamp: number | null
   
   // Actions
   setTool: (tool: ToolType) => void
@@ -195,6 +196,7 @@ export interface WhiteboardState {
   setVideoPlayerOpen: (isOpen: boolean) => void
   setVideoPlayerAction: (action: 'play' | 'pause' | null) => void
   setVideoPlayerUrl: (url: string | null) => void
+  setVideoPlayerTimestamp: (timestamp: number | null) => void
   
   // Element actions
   addElement: (element: WhiteboardElement) => void
