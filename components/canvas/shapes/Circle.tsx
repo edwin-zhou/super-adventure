@@ -9,12 +9,16 @@ import type { CircleElement } from '@/types/whiteboard'
 interface CircleShapeProps {
   element: CircleElement
   isSelected: boolean
+  currentTool?: string
 }
 
-export function CircleShape({ element, isSelected }: CircleShapeProps) {
+export function CircleShape({ element, isSelected, currentTool }: CircleShapeProps) {
   const shapeRef = useRef<Konva.Circle>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
   const { updateElement, selectElement } = useWhiteboardStore()
+  
+  // Disable dragging when lasso tool is active
+  const isDraggable = currentTool !== 'select' && element.draggable
 
   useEffect(() => {
     if (isSelected && transformerRef.current && shapeRef.current) {
@@ -62,7 +66,8 @@ export function CircleShape({ element, isSelected }: CircleShapeProps) {
         stroke={element.stroke}
         strokeWidth={element.strokeWidth}
         rotation={element.rotation}
-        draggable={element.draggable}
+        draggable={isDraggable}
+        listening={currentTool !== 'select'}
         onClick={() => selectElement(element.id)}
         onTap={() => selectElement(element.id)}
         onDragEnd={handleDragEnd}

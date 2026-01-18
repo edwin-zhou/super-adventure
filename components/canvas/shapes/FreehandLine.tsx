@@ -9,12 +9,16 @@ import type { FreehandElement } from '@/types/whiteboard'
 interface FreehandShapeProps {
   element: FreehandElement
   isSelected: boolean
+  currentTool?: string
 }
 
-export function FreehandShape({ element, isSelected }: FreehandShapeProps) {
+export function FreehandShape({ element, isSelected, currentTool }: FreehandShapeProps) {
   const shapeRef = useRef<Konva.Line>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
   const { updateElement, selectElement } = useWhiteboardStore()
+  
+  // Disable dragging when lasso tool is active
+  const isDraggable = currentTool !== 'select' && element.draggable
 
   useEffect(() => {
     if (isSelected && transformerRef.current && shapeRef.current) {
@@ -59,7 +63,8 @@ export function FreehandShape({ element, isSelected }: FreehandShapeProps) {
         rotation={element.rotation}
         scaleX={element.scaleX}
         scaleY={element.scaleY}
-        draggable={element.draggable}
+        draggable={isDraggable}
+        listening={currentTool !== 'select'}
         onClick={() => selectElement(element.id)}
         onTap={() => selectElement(element.id)}
         onDragEnd={handleDragEnd}

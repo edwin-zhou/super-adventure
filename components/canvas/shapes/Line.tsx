@@ -9,12 +9,16 @@ import type { LineElement } from '@/types/whiteboard'
 interface LineShapeProps {
   element: LineElement
   isSelected: boolean
+  currentTool?: string
 }
 
-export function LineShape({ element, isSelected }: LineShapeProps) {
+export function LineShape({ element, isSelected, currentTool }: LineShapeProps) {
   const shapeRef = useRef<Konva.Line>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
   const { updateElement, selectElement } = useWhiteboardStore()
+  
+  // Disable dragging when lasso tool is active
+  const isDraggable = currentTool !== 'select' && element.draggable
 
   useEffect(() => {
     if (isSelected && transformerRef.current && shapeRef.current) {
@@ -57,7 +61,8 @@ export function LineShape({ element, isSelected }: LineShapeProps) {
         rotation={element.rotation}
         scaleX={element.scaleX}
         scaleY={element.scaleY}
-        draggable={element.draggable}
+        draggable={isDraggable}
+        listening={currentTool !== 'select'}
         onClick={() => selectElement(element.id)}
         onTap={() => selectElement(element.id)}
         onDragEnd={handleDragEnd}

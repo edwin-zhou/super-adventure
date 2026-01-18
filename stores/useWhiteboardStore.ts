@@ -45,6 +45,8 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
   gestureControlEnabled: false,
   isVideoPlayerOpen: false,
   videoPlayerAction: null,
+  videoPlayerUrl: null,
+  lassoMaskContext: null,
 
   // Tool actions
   setTool: (tool: ToolType) => set({ currentTool: tool }),
@@ -55,6 +57,7 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
   // Video player actions
   setVideoPlayerOpen: (isOpen: boolean) => set({ isVideoPlayerOpen: isOpen }),
   setVideoPlayerAction: (action: 'play' | 'pause' | null) => set({ videoPlayerAction: action }),
+  setVideoPlayerUrl: (url: string | null) => set({ videoPlayerUrl: url }),
 
   // Element actions
   addElement: (element: WhiteboardElement) =>
@@ -337,6 +340,11 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
         },
       }
     }),
+
+  // Lasso mask actions
+  setLassoMaskContext: (context) => set({ lassoMaskContext: context }),
+  
+  clearLassoMaskContext: () => set({ lassoMaskContext: null }),
 
   // Clear all
   clearCanvas: () =>

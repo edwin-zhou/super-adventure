@@ -9,13 +9,17 @@ import type { TextElement } from '@/types/whiteboard'
 interface TextNodeProps {
   element: TextElement
   isSelected: boolean
+  currentTool?: string
 }
 
-export function TextNode({ element, isSelected }: TextNodeProps) {
+export function TextNode({ element, isSelected, currentTool }: TextNodeProps) {
   const shapeRef = useRef<Konva.Text>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
   const { updateElement, selectElement } = useWhiteboardStore()
   const [isEditing, setIsEditing] = useState(false)
+  
+  // Disable dragging when lasso tool is active or editing
+  const isDraggable = currentTool !== 'select' && element.draggable && !isEditing
 
   useEffect(() => {
     if (isSelected && transformerRef.current && shapeRef.current && !isEditing) {
@@ -130,7 +134,8 @@ export function TextNode({ element, isSelected }: TextNodeProps) {
         align={element.align}
         fontStyle={element.fontStyle}
         rotation={element.rotation}
-        draggable={element.draggable && !isEditing}
+        draggable={isDraggable}
+        listening={currentTool !== 'select'}
         onClick={() => selectElement(element.id)}
         onTap={() => selectElement(element.id)}
         onDblClick={handleDoubleClick}

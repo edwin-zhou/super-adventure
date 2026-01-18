@@ -9,12 +9,16 @@ import type { RectangleElement } from '@/types/whiteboard'
 interface RectangleShapeProps {
   element: RectangleElement
   isSelected: boolean
+  currentTool?: string
 }
 
-export function RectangleShape({ element, isSelected }: RectangleShapeProps) {
+export function RectangleShape({ element, isSelected, currentTool }: RectangleShapeProps) {
   const shapeRef = useRef<Konva.Rect>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
   const { updateElement, selectElement } = useWhiteboardStore()
+  
+  // Disable dragging when lasso tool is active
+  const isDraggable = currentTool !== 'select' && element.draggable
 
   useEffect(() => {
     if (isSelected && transformerRef.current && shapeRef.current) {
@@ -64,7 +68,8 @@ export function RectangleShape({ element, isSelected }: RectangleShapeProps) {
         strokeWidth={element.strokeWidth}
         cornerRadius={element.cornerRadius}
         rotation={element.rotation}
-        draggable={element.draggable}
+        draggable={isDraggable}
+        listening={currentTool !== 'select'}
         onClick={() => selectElement(element.id)}
         onTap={() => selectElement(element.id)}
         onDragEnd={handleDragEnd}

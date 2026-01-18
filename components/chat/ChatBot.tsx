@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Bot, Minimize2, X, Plus, Upload, Link, Youtube, Loader2, Download, RotateCcw, AudioLines, Square } from 'lucide-react'
+import { Send, Bot, Minimize2, X, Plus, Upload, Link, Youtube, Loader2, Download, RotateCcw, AudioLines, Square, FileText } from 'lucide-react'
 import { useVoiceAgent } from '@/hooks/useVoiceAgent'
+import { useWhiteboardStore } from '@/stores/useWhiteboardStore'
 import ReactMarkdown from 'react-markdown'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
@@ -11,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
+import { generateMaskFromPath } from '@/lib/mask-utils'
 import {
   extractYoutubeUrls,
   containsYoutubeUrl,
@@ -70,7 +72,7 @@ interface NoteStyleSample {
 }
 
 interface ChatBotProps {
-  onAddImageToPage?: (imageUrl: string, pageNumber: number) => void
+  onAddImageToPage?: (imageUrl: string, pageNumber: number, replace?: boolean) => void
 }
 
 // Fetch video title from YouTube oEmbed API
@@ -110,6 +112,9 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const noteStyleInputRef = useRef<HTMLInputElement>(null)
+  
+  // Get lasso mask context from the whiteboard store
+  const lassoMaskContext = useWhiteboardStore((state) => state.lassoMaskContext)
 
   // Voice agent callback - wraps handleSend to return response text
   const handleVoiceSubmit = useCallback(async (text: string): Promise<string> => {
@@ -142,12 +147,33 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
         addVideosToContext(allYoutubeUrls)
       }
       
-      const result = await invokeAgent(text)
+      // Prepare mask context if available
+      let maskContext = null
+      if (lassoMaskContext?.targetImageId && lassoMaskContext?.relativeMaskPath) {
+        try {
+          // Generate mask from the relative path
+          const maskBase64 = generateMaskFromPath(
+            lassoMaskContext.relativeMaskPath,
+            1024, // Default image width
+            1536  // Default image height
+          )
+          
+          maskContext = {
+            imageId: lassoMaskContext.targetImageId,
+            maskBase64,
+            targetImageId: lassoMaskContext.targetImageId,
+          }
+        } catch (error) {
+          console.error('Failed to generate mask:', error)
+        }
+      }
+      
+      const result = await invokeAgent(text, undefined, maskContext)
 
       if (result.whiteboardActions && result.whiteboardActions.length > 0 && onAddImageToPage) {
         for (const action of result.whiteboardActions) {
           if (action.type === 'add_full_page_image') {
-            onAddImageToPage(action.imageUrl, action.pageNumber)
+            onAddImageToPage(action.imageUrl, action.pageNumber, action.replace)
           }
         }
       }
@@ -328,7 +354,7 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
       if (result.whiteboardActions && result.whiteboardActions.length > 0 && onAddImageToPage) {
         for (const action of result.whiteboardActions) {
           if (action.type === 'add_full_page_image') {
-            onAddImageToPage(action.imageUrl, action.pageNumber)
+            onAddImageToPage(action.imageUrl, action.pageNumber, action.replace)
           }
         }
       }
@@ -543,6 +569,20 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
 
   // Check for YouTube URL in input
   const inputHasYoutube = containsYoutubeUrl(input)
+  
+  // Check if chat is empty (only has the initial welcome message)
+  const isChatEmpty = messages.length === 1 && messages[0].id === '1'
+  
+  // Handler for generating notes from video
+  const handleGenerateNotes = () => {
+    if (pendingVideos.length > 0) {
+      const videoCount = pendingVideos.length
+      const presetMessage = videoCount === 1
+        ? `Create comprehensive study notes from this video. Include all key concepts, definitions, equations, diagrams, examples, and important points. Organize the notes clearly with headings and sections.`
+        : `Create comprehensive study notes from these ${videoCount} videos. Include all key concepts, definitions, equations, diagrams, examples, and important points from each video. Organize the notes clearly with headings and sections.`
+      handleSend(presetMessage)
+    }
+  }
 
   if (isMinimized) {
     return (
@@ -638,6 +678,31 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
                 </p>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Lasso selection indicator - more minimal */}
+      {lassoMaskContext && (
+        <div className="px-3 py-2 bg-blue-500/10 border-b border-blue-500/20">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-blue-400">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                <path d="M2 17l10 5 10-5"/>
+                <path d="M2 12l10 5 10-5"/>
+              </svg>
+              <span>Selected region in context</span>
+            </div>
+            <button
+              onClick={() => {
+                const { clearLassoMaskContext } = useWhiteboardStore.getState()
+                clearLassoMaskContext()
+              }}
+              className="text-xs text-blue-400/60 hover:text-blue-400"
+            >
+              Clear
+            </button>
           </div>
         </div>
       )}
@@ -965,16 +1030,18 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
               isVoiceMode
                 ? (isSpeaking ? 'Speaking...' : isAgentTurn ? 'Processing...' : 'Listening...')
                 : isGenerating 
-                  ? 'Generating...' 
-                  : pendingVideos.length > 0 
-                    ? `Ask about ${pendingVideos.length === 1 ? 'this video' : `these ${pendingVideos.length} videos`}...` 
-                    : 'Ask anything or paste YouTube URLs...'
+                  ? 'Generating...'
+                  : lassoMaskContext
+                    ? 'Ask about the selected region...'
+                    : pendingVideos.length > 0 
+                      ? `Ask about ${pendingVideos.length === 1 ? 'this video' : `these ${pendingVideos.length} videos`}...` 
+                      : 'Ask anything or paste YouTube URLs...'
             }
             className="flex-1 bg-slate-900 border-slate-600 text-white placeholder:text-slate-500"
             disabled={isGenerating || isVoiceMode}
           />
           
-          {/* Voice/Stop/Send Button */}
+          {/* Voice/Stop/Send/Notes Button */}
           {isVoiceMode ? (
             // Stop button - exits voice mode
             <Button
@@ -983,6 +1050,20 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
               title="Stop voice mode"
             >
               <Square size={18} />
+            </Button>
+          ) : isChatEmpty && pendingVideos.length > 0 && !input.trim() ? (
+            // Notes button - when chat is empty and videos are available
+            <Button
+              onClick={handleGenerateNotes}
+              disabled={isGenerating}
+              className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500"
+              title={`Generate study notes from ${pendingVideos.length === 1 ? 'this video' : `these ${pendingVideos.length} videos`}`}
+            >
+              {isGenerating ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : (
+                <FileText size={18} />
+              )}
             </Button>
           ) : input.trim() || pendingVideos.length > 0 ? (
             // Send button - when there's text or videos

@@ -17,13 +17,31 @@ interface VideoPlayerProps {
 }
 
 export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDrop, isDragging }: VideoPlayerProps) {
-  const [videoUrl, setVideoUrl] = useState('')
+  const [localVideoUrl, setLocalVideoUrl] = useState('')
   const [showUrlInput, setShowUrlInput] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   
   const videoPlayerAction = useWhiteboardStore((state) => state.videoPlayerAction)
   const setVideoPlayerAction = useWhiteboardStore((state) => state.setVideoPlayerAction)
+  const storeVideoUrl = useWhiteboardStore((state) => state.videoPlayerUrl)
+  const setStoreVideoUrl = useWhiteboardStore((state) => state.setVideoPlayerUrl)
+  
+  // Derive the actual video URL from store or local state
+  const videoUrl = storeVideoUrl || localVideoUrl
+  
+  // Sync store URL to local state and clear store
+  useEffect(() => {
+    if (storeVideoUrl) {
+      setLocalVideoUrl(storeVideoUrl)
+      setStoreVideoUrl(null) // Clear after consuming
+      setShowUrlInput(false)
+    }
+  }, [storeVideoUrl, setStoreVideoUrl])
+  
+  const setVideoUrl = (url: string) => {
+    setLocalVideoUrl(url)
+  }
   
   // Handle video player actions (play/pause)
   useEffect(() => {
@@ -128,7 +146,7 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
       {/* Video Player Area */}
       <div className="flex-1 flex flex-col items-center justify-center p-4">
         {videoUrl ? (
-          <div className="w-full h-full flex flex-col relative">
+          <div className="w-full flex flex-col items-center justify-center relative flex-1">
             {/* Close Video Button */}
             <button
               onClick={() => setVideoUrl('')}
@@ -142,7 +160,7 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
               <iframe
                 ref={iframeRef}
                 src={getEmbedUrl(videoUrl) || ''}
-                className="w-full h-full bg-black rounded-lg"
+                className="w-full aspect-video max-h-[70vh] bg-black rounded-lg"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
                 title="Video player"
@@ -152,7 +170,7 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
                 ref={videoRef}
                 src={videoUrl}
                 controls
-                className="w-full h-full bg-black rounded-lg"
+                className="w-full max-h-[70vh] bg-black rounded-lg object-contain"
               >
                 Your browser does not support the video tag.
               </video>

@@ -98,61 +98,46 @@ function imageDataToUrl(imageData: string, format: string = 'png'): string {
   return `data:${mimeType};base64,${imageData}`;
 }
 
-// Define the image generation function declaration (Gemini format)
+// Define the study notes generation function declaration (Gemini format)
 const generateImageDeclaration = {
-  name: 'generate_image',
-  description: 'Generate a NEW image based on a text description. Can optionally use reference images from the conversation to influence the style, content, or composition. Use this when the user asks to create, draw, or generate a new image.',
+  name: 'generate_study_notes',
+  description: 'Generate NEW study notes or class notes based on educational content, video transcripts, or text descriptions. Creates handwritten-style notes with diagrams, equations, summaries, and organized content. IMPORTANT: The image generation tool does NOT have access to video content or conversation context - you must explicitly describe ALL content, concepts, equations, diagrams, and details that should appear in the notes. Note style templates are automatically included to match the user\'s preferred style. Use this when the user asks to create notes, generate study materials, summarize content, or create class notes from videos or text.',
   parameters: {
     type: Type.OBJECT,
     properties: {
       prompt: {
         type: Type.STRING,
-        description: 'A detailed description of the image to generate. Be specific about style, colors, composition, and subjects. If using reference images, describe how to incorporate them.',
-      },
-      referenceImageIds: {
-        type: Type.ARRAY,
-        items: { type: Type.STRING },
-        description: 'Optional array of image IDs from previously generated images to use as references. The generated image will be influenced by these reference images. Use when the user says things like "make something like this", "use this as reference", "in the style of the previous image", or wants to combine elements from multiple images.',
+        description: 'A COMPLETE and DETAILED description of the study notes to generate. Since the image tool has no access to video content or conversation context, you must explicitly include: the topic/subject, all key concepts, definitions, equations, formulas, diagrams, examples, step-by-step explanations, summaries, and organization structure. For video-based notes, extract and describe ALL main points, concepts, important details, examples shown, and any visual content. Be extremely specific about what educational content should appear in the notes.',
       },
       size: {
         type: Type.STRING,
         enum: ['1024x1024', '1024x1536', '1536x1024', 'auto'],
-        description: 'The size of the generated image. Default is auto.',
-      },
-      quality: {
-        type: Type.STRING,
-        enum: ['low', 'medium', 'high', 'auto'],
-        description: 'The quality level of the generated image. Default is auto.',
+        description: 'The size of the generated notes page. Always use "1024x1536" (portrait, full-page) for study notes to fit whiteboard pages properly.',
       },
     },
     required: ['prompt'],
   },
 };
 
-// Define the image editing function declaration (Gemini format)
+// Define the study notes editing function declaration (Gemini format)
 const editImageDeclaration = {
-  name: 'edit_image',
-  description: 'Edit or modify an existing image that was previously generated in this conversation. Use this when the user wants to change, modify, update, or refine an image that already exists. The user might say things like "make it blue", "add a hat", "remove the background", "make it more realistic", etc.',
+  name: 'edit_study_notes',
+  description: 'Edit or modify existing study notes that were previously generated. Use this when the user wants to update, refine, correct, or add content to their notes. If a mask context is available (user has selected a region with the lasso tool), the mask will be automatically provided to edit only that specific region of the notes. Otherwise, edits will apply to the entire notes page. Use this for corrections, additions, clarifications, or improvements to study materials.',
   parameters: {
     type: Type.OBJECT,
     properties: {
       imageId: {
         type: Type.STRING,
-        description: 'The ID of the previously generated image to edit. Use the most recently generated image ID if the user refers to "the image" or "it".',
+        description: 'The ID of the previously generated study notes to edit. Use the most recently generated notes ID if the user refers to "the notes", "this page", or "it".',
       },
       editPrompt: {
         type: Type.STRING,
-        description: 'A description of the edits to make to the image. Be specific about what changes should be made.',
+        description: 'A description of the edits to make to the study notes. Be specific about what content to add, change, correct, or improve. Include any equations, diagrams, text, or formatting changes needed. If a mask is available, describe what educational content should appear in the selected region.',
       },
       size: {
         type: Type.STRING,
         enum: ['1024x1024', '1024x1536', '1536x1024', 'auto'],
-        description: 'The size of the output image. Default is auto.',
-      },
-      quality: {
-        type: Type.STRING,
-        enum: ['low', 'medium', 'high', 'auto'],
-        description: 'The quality level of the output image. Default is auto.',
+        description: 'The size of the output notes page. Default is 1024x1536 (portrait, full-page).',
       },
     },
     required: ['imageId', 'editPrompt'],
@@ -161,81 +146,95 @@ const editImageDeclaration = {
 
 // Define the add to page tool declaration (Gemini format)
 const addToPageDeclaration = {
-  name: 'add_to_page',
-  description: 'Add a generated full-page image to a specific page number on the whiteboard. Use this when the user asks to add, place, or put generated notes/images onto the whiteboard. The whiteboard has pages numbered 1, 2, 3, etc. Each page is 1200x1600 pixels.',
+  name: 'add_notes_to_page',
+  description: 'Add generated study notes to a specific page number on the whiteboard. Use this when the user asks to add, place, or put study notes onto the whiteboard. The whiteboard has pages numbered 1, 2, 3, etc. Each page is 1024x1536 pixels, perfect for full-page study notes.',
   parameters: {
     type: Type.OBJECT,
     properties: {
       imageId: {
         type: Type.STRING,
-        description: 'The ID of the generated image to add to the whiteboard page.',
+        description: 'The ID of the generated study notes to add to the whiteboard page.',
       },
       pageNumber: {
         type: Type.NUMBER,
-        description: 'The page number (1, 2, 3, etc.) to add the image to. If the page doesn\'t exist, it will be created. Default is 1.',
+        description: 'The page number (1, 2, 3, etc.) to add the notes to. If the page doesn\'t exist, it will be created. Default is 1.',
+      },
+      replace: {
+        type: Type.BOOLEAN,
+        description: 'If true (default), replace all existing content on the page with these notes. If false, add the notes to the page alongside existing content.',
       },
     },
     required: ['imageId'],
   },
 };
 
+
 // Execute the image generation function
-async function executeGenerateImage(args: { prompt: string; referenceImageIds?: string[]; size?: string; quality?: string }): Promise<{ success: boolean; imageId?: string; message: string; error?: string }> {
+async function executeGenerateImage(args: { prompt: string; size?: string }): Promise<{ success: boolean; imageId?: string; message: string; error?: string }> {
   try {
     const client = getOpenAIClient();
     
-    // Check if we have reference images to use
-    const hasReferences = args.referenceImageIds && args.referenceImageIds.length > 0;
+    // ALWAYS include note style templates - hard-wired
+    // Start with "default" and add any user-uploaded samples
+    const allNoteStyleIds = Array.from(noteStyleSamples.keys());
+    const referenceImages: File[] = [];
+    
+    for (const refId of allNoteStyleIds) {
+      const noteSample = noteStyleSamples.get(refId);
+      if (noteSample) {
+        const imageBuffer = Buffer.from(noteSample.base64Data, 'base64');
+        const imageFile = new File([imageBuffer], `note_style_${refId}.png`, { type: 'image/png' });
+        referenceImages.push(imageFile);
+      }
+    }
+    
+    // Build the prompt with instruction to use templates
+    const enhancedPrompt = `Style Reference:
+Use the included note style template(s) as the visual reference.
+
+Goal:
+Create educational study notes that match the template's style exactly.
+
+What to PRESERVE from template:
+- Handwriting style, letter formation, and character proportions
+- Paper type, texture, and background appearance
+- Layout structure, margins, and spacing patterns
+- Color palette and ink/pen style
+- Organization patterns (headings, bullet points, numbering)
+
+What to CHANGE (new educational content):
+${args.prompt}
+
+Constraints:
+- Maintain natural handwritten appearance
+- Keep text legible and well-organized
+- Use appropriate sizing for headings vs body text
+- No digital fonts or computer-generated text
+- Preserve the authentic study notes aesthetic from the template`;
     
     let response;
     
-    if (hasReferences) {
-      // Use the edit endpoint with reference images
-      const referenceImages: File[] = [];
-      const validRefs: string[] = [];
-      
-      for (const refId of args.referenceImageIds!) {
-        // Check both image cache and note style samples
-        const cached = imageCache.get(refId);
-        const noteSample = noteStyleSamples.get(refId);
-        
-        if (cached) {
-          const imageBuffer = Buffer.from(cached.base64Data, 'base64');
-          const imageFile = new File([imageBuffer], `ref_${refId}.png`, { type: 'image/png' });
-          referenceImages.push(imageFile);
-          validRefs.push(refId);
-        } else if (noteSample) {
-          const imageBuffer = Buffer.from(noteSample.base64Data, 'base64');
-          const imageFile = new File([imageBuffer], `note_style_${refId}.png`, { type: 'image/png' });
-          referenceImages.push(imageFile);
-          validRefs.push(refId);
-        }
-      }
-      
-      if (referenceImages.length === 0) {
-        return {
-          success: false,
-          error: 'No valid reference images found',
-          message: `Could not find any of the specified reference images. Available IDs: ${Array.from(imageCache.keys()).join(', ') || 'none'}`,
-        };
-      }
-      
-      // Use images.edit for reference-based generation
+    if (referenceImages.length > 0) {
+      // Use the edit endpoint with reference images (note style templates)
       response = await client.images.edit({
         model: 'gpt-image-1.5',
         image: referenceImages.length === 1 ? referenceImages[0] : referenceImages as any,
-        prompt: args.prompt,
-        size: (args.size || 'auto') as any,
-        quality: (args.quality || 'auto') as any,
+        prompt: enhancedPrompt,
+        size: (args.size || '1024x1536') as any,
+        quality: 'high' as any,
+        input_fidelity: 'high' as any,
+        // @ts-ignore - These are valid parameters for gpt-image models
+        output_format: 'png',
+        background: 'transparent',
       });
     } else {
-      // Standard generation without references
+      // Fallback: Standard generation without references (shouldn't happen if default exists)
       response = await client.images.generate({
         model: 'gpt-image-1.5',
-        prompt: args.prompt,
+        prompt: enhancedPrompt,
         n: 1,
-        size: (args.size || 'auto') as any,
-        quality: (args.quality || 'auto') as any,
+        size: (args.size || '1024x1536') as any,
+        quality: 'high' as any,
         // @ts-ignore - These are valid parameters for gpt-image models
         output_format: 'png',
         background: 'transparent',
@@ -262,27 +261,28 @@ async function executeGenerateImage(args: { prompt: string; referenceImageIds?: 
       format: 'png',
     });
     
-    const refMessage = hasReferences 
-      ? ` (using ${args.referenceImageIds!.length} reference image(s))`
+    const templateCount = referenceImages.length;
+    const refMessage = templateCount > 0 
+      ? ` (using ${templateCount} note style template(s))`
       : '';
     
     return {
       success: true,
       imageId,
-      message: `Successfully generated image with ID "${imageId}"${refMessage}: "${response.data[0].revised_prompt || args.prompt}"`,
+      message: `Successfully generated study notes with ID "${imageId}"${refMessage}: "${response.data[0].revised_prompt || args.prompt}"`,
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return {
       success: false,
       error: errorMessage,
-      message: `Failed to generate image: ${errorMessage}`,
+      message: `Failed to generate study notes: ${errorMessage}`,
     };
   }
 }
 
-// Execute the image editing function
-async function executeEditImage(args: { imageId: string; editPrompt: string; size?: string; quality?: string }): Promise<{ success: boolean; imageId?: string; message: string; error?: string }> {
+// Execute the image editing function (supports both full-image and masked editing)
+async function executeEditImage(args: { imageId: string; editPrompt: string; maskBase64?: string; size?: string }): Promise<{ success: boolean; imageId?: string; message: string; error?: string }> {
   try {
     const client = getOpenAIClient();
     
@@ -291,8 +291,8 @@ async function executeEditImage(args: { imageId: string; editPrompt: string; siz
     if (!sourceImage) {
       return {
         success: false,
-        error: 'Image not found',
-        message: `Could not find image with ID "${args.imageId}". The image may have expired or the ID is incorrect.`,
+        error: 'Notes not found',
+        message: `Could not find study notes with ID "${args.imageId}". The notes may have expired or the ID is incorrect.`,
       };
     }
     
@@ -300,13 +300,27 @@ async function executeEditImage(args: { imageId: string; editPrompt: string; siz
     const imageBuffer = Buffer.from(sourceImage.base64Data, 'base64');
     const imageFile = new File([imageBuffer], 'source.png', { type: 'image/png' });
     
-    const response = await client.images.edit({
+    // Build the edit request - include mask if provided
+    const editRequest: any = {
       model: 'gpt-image-1.5',
       image: imageFile,
       prompt: args.editPrompt,
-      size: (args.size || 'auto') as any,
-      quality: (args.quality || 'auto') as any,
-    });
+      size: (args.size || '1024x1536') as any,
+      quality: 'high' as any,
+      input_fidelity: 'high' as any,
+      // @ts-ignore - These are valid parameters for gpt-image models
+      output_format: 'png',
+      background: 'transparent',
+    };
+    
+    // Add mask if provided (for inpainting)
+    if (args.maskBase64) {
+      const maskBuffer = Buffer.from(args.maskBase64, 'base64');
+      const maskFile = new File([maskBuffer], 'mask.png', { type: 'image/png' });
+      editRequest.mask = maskFile;
+    }
+    
+    const response = await client.images.edit(editRequest);
 
     if (!response.data || response.data.length === 0) {
       throw new Error('No image data returned from API');
@@ -321,32 +335,38 @@ async function executeEditImage(args: { imageId: string; editPrompt: string; siz
     const newImageId = generateImageId();
     
     // Cache the edited image
+    const editType = args.maskBase64 ? 'Masked edit' : 'Edited';
     imageCache.set(newImageId, {
       imageUrl,
       base64Data: imageData,
-      prompt: `Edited: ${args.editPrompt} (from ${args.imageId})`,
+      prompt: `${editType}: ${args.editPrompt} (from ${args.imageId})`,
       format: 'png',
     });
+    
+    const editMessage = args.maskBase64 
+      ? `Successfully edited selected region in study notes. New notes ID: "${newImageId}". Edit applied: "${args.editPrompt}"`
+      : `Successfully edited study notes. New notes ID: "${newImageId}". Edit applied: "${args.editPrompt}"`;
     
     return {
       success: true,
       imageId: newImageId,
-      message: `Successfully edited image. New image ID: "${newImageId}". Edit applied: "${args.editPrompt}"`,
+      message: editMessage,
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return {
       success: false,
       error: errorMessage,
-      message: `Failed to edit image: ${errorMessage}`,
+      message: `Failed to edit study notes: ${errorMessage}`,
     };
   }
 }
 
 // Execute the add to page function
-async function executeAddToPage(args: { imageId: string; pageNumber?: number }): Promise<{ success: boolean; pageNumber: number; message: string; error?: string }> {
+async function executeAddToPage(args: { imageId: string; pageNumber?: number; replace?: boolean }): Promise<{ success: boolean; pageNumber: number; replace: boolean; message: string; error?: string }> {
   try {
     const pageNumber = args.pageNumber || 1;
+    const replace = args.replace !== undefined ? args.replace : true;
     
     // Verify the image exists
     const cached = imageCache.get(args.imageId);
@@ -354,8 +374,9 @@ async function executeAddToPage(args: { imageId: string; pageNumber?: number }):
       return {
         success: false,
         pageNumber,
-        error: 'Image not found',
-        message: `Could not find image with ID "${args.imageId}". Available IDs: ${Array.from(imageCache.keys()).join(', ') || 'none'}`,
+        replace,
+        error: 'Notes not found',
+        message: `Could not find study notes with ID "${args.imageId}". Available IDs: ${Array.from(imageCache.keys()).join(', ') || 'none'}`,
       };
     }
     
@@ -364,78 +385,119 @@ async function executeAddToPage(args: { imageId: string; pageNumber?: number }):
     return {
       success: true,
       pageNumber,
-      message: `Successfully queued image "${args.imageId}" to be added to page ${pageNumber}.`,
+      replace,
+      message: `Successfully queued study notes "${args.imageId}" to be ${replace ? 'replaced on' : 'added to'} page ${pageNumber}.`,
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return {
       success: false,
       pageNumber: args.pageNumber || 1,
+      replace: args.replace !== undefined ? args.replace : true,
       error: errorMessage,
-      message: `Failed to add image to page: ${errorMessage}`,
+      message: `Failed to add study notes to page: ${errorMessage}`,
     };
   }
 }
 
 // System prompt for the agent
-const SYSTEM_PROMPT = `You are a helpful teaching assistant for an interactive whiteboard application.
-You help users understand educational content, answer questions, and provide explanations.
+const SYSTEM_PROMPT = `You are a helpful study assistant for an interactive whiteboard application designed for creating and organizing class notes and study materials.
+You help students understand educational content, answer questions, create comprehensive study notes, and organize learning materials.
 
-You have access to three main tools:
+You have access to three main tools for creating and managing study notes:
 
-1. **generate_image**: Use this to create a NEW image based on a text description.
-   - Use when the user asks to "create", "draw", "generate", or "make" a new image
-   - Can optionally use \`referenceImageIds\` to provide reference images that influence the output
-   - Use reference images when user says "like this", "similar to", "in the style of", "combine these", etc.
-   - For FULL-PAGE NOTES: Always use size "1024x1536" (portrait) to fit whiteboard pages
-   - Examples with references: "create notes from this video in my style", "make a logo like this but blue"
+1. **generate_study_notes**: Use this to create NEW study notes or class notes from educational content.
+   - Use when the user asks to "create notes", "generate study guide", "summarize", "make notes from this video", or "create class notes"
+   - ALWAYS use size "1024x1536" (portrait, full-page) for study notes to fit whiteboard pages properly
+   - CRITICAL: The image generation tool does NOT have access to video content, conversation history, or examples shown in videos. You MUST explicitly describe ALL content that should appear in the notes.
+   - For video-based notes: Extract and explicitly describe ALL key concepts, main points, important details, equations, formulas, diagrams, examples, step-by-step explanations, and visual content from the video
+   - Note style templates are automatically included - you don't need to specify them. The tool will match the user's preferred style automatically.
+   - Create comprehensive, well-organized notes with clear sections, headings, equations, diagrams, and summaries
+   - Be extremely detailed in your prompt - include specific concepts, definitions, formulas, examples, and explanations that should appear
+   - **MULTI-PAGE SUPPORT**: If content is extensive, call this tool multiple times with different content sections, then use add_notes_to_page to place each on sequential pages (1, 2, 3, etc.)
+   - Examples: "create notes from this video", "generate a study guide on calculus", "make notes in my style"
+   
+   **PROMPT STRUCTURE BEST PRACTICES**:
+   - Organize content in clear sections with headings (Introduction, Key Concepts, Formulas, Examples, Summary)
+   - For important equations or formulas, write them out explicitly and clearly
+   - For text that must appear verbatim (definitions, theorems), put it in "quotes"
+   - Specify visual organization: "Title at top in large text, then 3 sections with bullet points, diagrams on the right side"
+   - Be specific about layout: "heading in bold, key terms underlined, equations centered"
+   - Describe diagrams in detail: "draw a labeled diagram showing [specific elements and their relationships]"
 
-2. **edit_image**: Use this to MODIFY an existing image that was previously generated.
-   - Use when the user wants to change, update, refine, or modify an existing image
-   - You MUST provide the imageId of the image to edit
-   - Examples: "make it blue", "add a hat", "make it more realistic", "remove the text"
+2. **edit_study_notes**: Use this to EDIT or UPDATE existing study notes.
+   - Use when the user wants to correct, refine, add content, or improve their notes
+   - You MUST provide the imageId of the notes to edit (use most recent if user says "the notes" or "this page")
+   - If a mask context is available (user has selected a region with the lasso tool), the mask will be automatically provided to edit only that specific region
+   - If no mask is available, edits will apply to the entire notes page
+   - Use for: corrections, additions, clarifications, improvements, adding equations or diagrams
+   - Examples: "fix this equation", "add more detail here", "correct the formula", "make this clearer"
+   
+   **TEXT AND EQUATION RENDERING**:
+   - For corrections to specific text/equations, provide the exact new text in "quotes"
+   - Specify typography changes explicitly: "make heading larger", "center the equation", "underline key terms"
+   - For adding new content, describe both what to add and where to place it
 
-3. **add_to_page**: Use this to add a generated image to a specific page on the whiteboard.
-   - Use when the user asks to add, place, or put an image onto the whiteboard
+3. **add_notes_to_page**: Use this to add generated study notes to a specific page on the whiteboard.
+   - Use when the user asks to add, place, or put study notes onto the whiteboard
    - Specify the pageNumber (1, 2, 3, etc.) - defaults to page 1
-   - Creates the page automatically if it doesn't exist
-   - Examples: "add these notes to page 2", "put the image on the whiteboard"
+   - Pages are automatically created if the page number doesn't exist yet - you can use any page number
+   - By default (replace=true), replaces all existing content on the page with the new notes
+   - Set replace=false if the user explicitly wants to add alongside existing content (e.g., "add to page 1 without replacing", "keep existing notes")
+   - For multi-page notes, use sequential page numbers (1, 2, 3, etc.) to organize content across pages
+   - Examples: "add these notes to page 2", "put the notes on the whiteboard", "replace page 1 with these notes"
 
-PERSONALIZED NOTES GENERATION:
-- When user asks for "notes", "summary", or "study guide" from video content:
-  1. ALWAYS use generate_image with size "1024x1536" (portrait, full-page) for notes
-  2. ALWAYS include note style sample IDs as referenceImageIds - start with ["default"] and add any user-uploaded sample IDs
-  3. The "default" note style shows handwritten mathematical notes on blue-lined paper - use this as the base style
-  4. If user has uploaded additional note style samples, include those IDs too to match their preferred style
-  5. The notes should be comprehensive, well-organized summaries of the video content
-  6. Match the note-taking style from the samples (handwriting, diagrams, layout, formatting, structure, etc.)
+STUDY NOTES GENERATION WORKFLOW:
+- When user asks for notes, summaries, or study guides from video/text content:
+  1. ALWAYS use generate_study_notes with size "1024x1536" (portrait, full-page)
+  2. CRITICAL: The image tool has NO access to video content or conversation context. You MUST explicitly describe EVERYTHING that should appear in the notes:
+     - All key concepts, definitions, and terminology
+     - All equations, formulas, and mathematical expressions (write them out explicitly)
+     - All diagrams, charts, or visual aids (describe what they should show)
+     - All examples, step-by-step solutions, or explanations
+     - All important points, summaries, and takeaways
+     - Clear headings, sections, and organization structure
+  3. Be extremely detailed and specific in your prompt - include all educational content from the video/text that should appear in the notes
+  4. **MULTI-PAGE NOTES**: If the content is extensive and would be too dense for a single page, split it across multiple pages:
+     - Call generate_study_notes multiple times with different content sections
+     - Organize content logically across pages (e.g., page 1: introduction and key concepts, page 2: detailed explanations, page 3: examples and practice problems)
+     - Each call should focus on a specific subset of the content that fits well on one page
+     - Use add_notes_to_page to place each generated page sequentially (page 1, page 2, page 3, etc.)
 - If user asks to add notes to whiteboard:
-  - Use add_to_page tool with the generated image ID
+  - Use add_notes_to_page tool with the generated notes ID
   - Can specify which page (or default to page 1)
+  - Pages are automatically created if they don't exist - you can use any page number (1, 2, 3, etc.)
   - You can generate notes and add to page in a single turn (parallel function calls)
+  - For multi-page notes, call add_notes_to_page multiple times with sequential page numbers
 
 DECISION GUIDE:
-- First image → use generate_image (no references)
-- Notes/summary from video → use generate_image (size: 1024x1536, with note style as reference if available)
-- User wants something "like" existing images → use generate_image with referenceImageIds
-- User wants to modify existing image → use edit_image with imageId
-- User wants to add image to whiteboard → use add_to_page with imageId and pageNumber
+- User wants notes/summary from video or text → use generate_study_notes (size: 1024x1536). Remember: explicitly describe ALL content since the tool has no video context. Note style templates are automatically included.
+  - If content is extensive, split across multiple pages by calling generate_study_notes multiple times with different content sections, then use add_notes_to_page with sequential page numbers
+- User wants to modify/correct existing notes → use edit_study_notes with imageId (mask automatically provided if region selected)
+- User wants to add notes to whiteboard → use add_notes_to_page with imageId and pageNumber (replace=true by default)
+  - Pages are automatically created if they don't exist - use any page number (1, 2, 3, etc.)
+- User explicitly wants to keep existing content → use add_notes_to_page with replace=false
 
 IMPORTANT: 
-- After using any image tool, do NOT include markdown image syntax like ![alt](url) in your response
-- Always mention the image ID in your response so the user can reference it later
-- For add_to_page, always mention which page the image was added to
-- If user references "the image" or "it", use the most recent image ID
+- After generating or editing notes, do NOT include markdown image syntax like ![alt](url) in your response
+- Always mention the notes ID in your response so the user can reference it later
+- For add_notes_to_page, always mention which page the notes were added to
+- If user references "the notes" or "this page", use the most recent notes ID
+- Focus on creating high-quality, educational study materials that help with learning
 
 Be concise but thorough in your responses.
 Format your responses in a clear, readable way using markdown when helpful.`;
 
 // Server Actions (exported for client use)
 
-export async function invokeAgent(message: string, noteStyleSampleIds?: string[]): Promise<{
+export async function invokeAgent(
+  message: string, 
+  noteStyleSampleIds?: string[],
+  maskContext?: { imageId: string; maskBase64: string; targetImageId: string } | null
+): Promise<{
   response: string;
   generatedImages?: Array<{ id: string; prompt: string; url: string }>;
-  whiteboardActions?: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number }>;
+  whiteboardActions?: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number; replace?: boolean }>;
   availableNoteStyleIds?: string[];
 }> {
   const ai = getGeminiClient();
@@ -462,8 +524,14 @@ export async function invokeAgent(message: string, noteStyleSampleIds?: string[]
     }
   }
   
+  // Add mask context information if available
+  let messageWithMask = message;
+  if (maskContext) {
+    messageWithMask = `[MASK CONTEXT AVAILABLE: The user has selected a region on study notes "${maskContext.targetImageId}" using the lasso tool. Use edit_study_notes to edit only that region - the mask will be automatically provided.]\n\n${message}`;
+  }
+  
   // Add the text message
-  userParts.push({ text: message });
+  userParts.push({ text: messageWithMask });
   
   // Build the full contents array with conversation history
   const contents: ConversationTurn[] = [
@@ -483,7 +551,7 @@ export async function invokeAgent(message: string, noteStyleSampleIds?: string[]
   const generatedImages: Array<{ id: string; prompt: string; url: string }> = [];
   
   // Track whiteboard actions to return to client
-  const whiteboardActions: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number }> = [];
+  const whiteboardActions: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number; replace?: boolean }> = [];
   
   // Function calling loop
   let currentContents = contents;
@@ -505,18 +573,29 @@ export async function invokeAgent(message: string, noteStyleSampleIds?: string[]
       // Execute function calls and build function responses
       const functionResponseParts: MessagePart[] = [];
       
-      for (const functionCall of response.functionCalls) {
-        const functionName = functionCall.name;
-        const functionArgs = functionCall.args;
-        
-        if (!functionName || !functionArgs) {
-          continue; // Skip invalid function calls
+      // Separate generate_study_notes calls from other calls
+      const generateCalls: Array<{ index: number; functionCall: any }> = [];
+      const otherCalls: Array<{ index: number; functionCall: any }> = [];
+      
+      response.functionCalls.forEach((functionCall, index) => {
+        if (functionCall.name === 'generate_study_notes') {
+          generateCalls.push({ index, functionCall });
+        } else {
+          otherCalls.push({ index, functionCall });
         }
-        
-        // Execute the function
-        let functionResult: any;
-        if (functionName === 'generate_image') {
-          functionResult = await executeGenerateImage(functionArgs as { prompt: string; referenceImageIds?: string[]; size?: string; quality?: string });
+      });
+      
+      // Execute all generate_study_notes calls in parallel
+      const generateResults = await Promise.all(
+        generateCalls.map(async ({ index, functionCall }) => {
+          const functionName = functionCall.name;
+          const functionArgs = functionCall.args;
+          
+          if (!functionName || !functionArgs) {
+            return { index, functionName: functionName || 'unknown', functionResult: { error: 'Invalid function call' } };
+          }
+          
+          const functionResult = await executeGenerateImage(functionArgs as { prompt: string; size?: string });
           
           // Track generated image
           if (functionResult.success && functionResult.imageId) {
@@ -529,8 +608,35 @@ export async function invokeAgent(message: string, noteStyleSampleIds?: string[]
               });
             }
           }
-        } else if (functionName === 'edit_image') {
-          functionResult = await executeEditImage(functionArgs as { imageId: string; editPrompt: string; size?: string; quality?: string });
+          
+          return { index, functionName, functionResult };
+        })
+      );
+      
+      // Store generate results in a map for ordered retrieval
+      const generateResultsMap = new Map(generateResults.map(r => [r.index, r]));
+      
+      // Execute other calls sequentially
+      const otherResults: Array<{ index: number; functionName: string; functionResult: any }> = [];
+      
+      for (const { index, functionCall } of otherCalls) {
+        const functionName = functionCall.name;
+        const functionArgs = functionCall.args;
+        
+        if (!functionName || !functionArgs) {
+          otherResults.push({ index, functionName: functionName || 'unknown', functionResult: { error: 'Invalid function call' } });
+          continue;
+        }
+        
+        // Execute the function
+        let functionResult: any;
+        if (functionName === 'edit_study_notes') {
+          // Add mask from context if available
+          const editArgs = {
+            ...(functionArgs as { imageId: string; editPrompt: string; size?: string }),
+            ...(maskContext ? { maskBase64: maskContext.maskBase64 } : {}),
+          };
+          functionResult = await executeEditImage(editArgs);
           
           // Track edited image
           if (functionResult.success && functionResult.imageId) {
@@ -543,8 +649,8 @@ export async function invokeAgent(message: string, noteStyleSampleIds?: string[]
               });
             }
           }
-        } else if (functionName === 'add_to_page') {
-          functionResult = await executeAddToPage(functionArgs as { imageId: string; pageNumber?: number });
+        } else if (functionName === 'add_notes_to_page') {
+          functionResult = await executeAddToPage(functionArgs as { imageId: string; pageNumber?: number; replace?: boolean });
           
           // Track whiteboard action
           if (functionResult.success) {
@@ -556,6 +662,7 @@ export async function invokeAgent(message: string, noteStyleSampleIds?: string[]
                 imageId,
                 imageUrl: cached.imageUrl,
                 pageNumber: functionResult.pageNumber,
+                replace: functionResult.replace,
               });
             }
           }
@@ -563,14 +670,24 @@ export async function invokeAgent(message: string, noteStyleSampleIds?: string[]
           functionResult = { error: `Unknown function: ${functionName}` };
         }
         
-        // Add the function response
-        functionResponseParts.push({
-          functionResponse: {
-            name: functionName,
-            response: { result: functionResult },
-          },
-        });
+        otherResults.push({ index, functionName, functionResult });
       }
+      
+      // Combine all results in original order
+      const allResults = new Map([...generateResultsMap, ...new Map(otherResults.map(r => [r.index, r]))]);
+      
+      // Build function response parts in original order
+      response.functionCalls.forEach((_, index) => {
+        const result = allResults.get(index);
+        if (result) {
+          functionResponseParts.push({
+            functionResponse: {
+              name: result.functionName,
+              response: { result: result.functionResult },
+            },
+          });
+        }
+      });
       
       // Append the entire model response (preserves thought signatures)
       // and the function responses to contents
