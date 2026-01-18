@@ -26,12 +26,14 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
   const lastGestureTimeRef = useRef<{ [key: string]: number }>({})
   const palmPositionHistoryRef = useRef<Array<{ x: number; y: number; timestamp: number }>>([])
   const palmSwipeHistoryRef = useRef<Array<{ x: number; y: number; timestamp: number }>>([])
+  const palmSwipeVerticalHistoryRef = useRef<Array<{ x: number; y: number; timestamp: number }>>([])
   const gestureDebounceMs = 1500 // 1.5 second debounce for zoom gestures
   const scrollDebounceMs = 1500 // 1.5 second debounce for scroll gestures
   const PINCH_THRESHOLD = 0.08 // Distance threshold for detecting OK gesture (increased for better detection)
   const SWIPE_THRESHOLD = 0.15 // Minimum horizontal movement distance for swipe detection
   const SWIPE_TIME_WINDOW = 500 // Time window in ms to track palm movement
   const PALM_SWIPE_THRESHOLD = 0.12 // Minimum horizontal movement for whole palm swipe (no pinch required)
+  const PALM_SWIPE_VERTICAL_THRESHOLD = 0.12 // Minimum vertical movement for whole palm swipe down (no pinch required)
   
   const viewport = useWhiteboardStore((state) => state.viewport)
   const setViewport = useWhiteboardStore((state) => state.setViewport)
@@ -94,6 +96,47 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
         return 'Palm_Swipe_Right' // Moving right
       } else {
         return 'Palm_Swipe_Left' // Moving left
+      }
+    }
+    
+    return null
+  }, [])
+
+  // Custom whole palm swipe down detection (no pinch required - vertical palm movement)
+  const detectPalmSwipeDown = useCallback((landmarks: any) => {
+    if (!landmarks || landmarks.length === 0) return null
+    
+    // Get palm/wrist base (landmark 0) - side of the palm
+    const palm = landmarks[0]
+    
+    if (!palm) return null
+    
+    // Track palm movement over time (no pinch check needed)
+    const now = Date.now()
+    const currentPalmPos = { x: palm.x, y: palm.y, timestamp: now }
+    
+    // Add current position to history
+    palmSwipeVerticalHistoryRef.current.push(currentPalmPos)
+    
+    // Remove old positions outside time window
+    palmSwipeVerticalHistoryRef.current = palmSwipeVerticalHistoryRef.current.filter(
+      pos => now - pos.timestamp <= SWIPE_TIME_WINDOW
+    )
+    
+    // Need at least 2 positions to detect movement
+    if (palmSwipeVerticalHistoryRef.current.length < 2) return null
+    
+    // Calculate vertical movement of the palm (Y-axis)
+    const oldestPos = palmSwipeVerticalHistoryRef.current[0]
+    const verticalMovement = currentPalmPos.y - oldestPos.y
+    
+    // Detect swipe direction based on vertical movement
+    // Note: In screen coordinates, Y increases downward, so positive movement = down
+    if (Math.abs(verticalMovement) >= PALM_SWIPE_VERTICAL_THRESHOLD) {
+      if (verticalMovement > 0) {
+        return 'Palm_Swipe_Down' // Moving down
+      } else {
+        return 'Palm_Swipe_Up' // Moving up
       }
     }
     
@@ -302,7 +345,9 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
     
     // Video control and swipe gestures execute immediately (no debouncing)
     const isVideoGesture = gesture === 'Open_Palm' || gesture === 'Closed_Fist'
-    const isSwipeGesture = gesture === 'Swipe_Left' || gesture === 'Swipe_Right' || gesture === 'Palm_Swipe_Left' || gesture === 'Palm_Swipe_Right'
+    const isSwipeGesture = gesture === 'Swipe_Left' || gesture === 'Swipe_Right' || 
+                           gesture === 'Palm_Swipe_Left' || gesture === 'Palm_Swipe_Right' ||
+                           gesture === 'Palm_Swipe_Down' || gesture === 'Palm_Swipe_Up'
     
     if (!isVideoGesture && !isSwipeGesture) {
       // Determine debounce time based on gesture type
@@ -347,6 +392,12 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
       case 'Closed_Fist':  // ✊ Closed Fist → Pause video (immediate, no cooldown)
         handlePauseVideo()
         break
+      case 'Palm_Swipe_Down':  // 👇 Whole Palm Swipe Down (vertical, no pinch) → Disable camera/gesture control (immediate, no cooldown)
+        onClose()
+        break
+      case 'Palm_Swipe_Up':  // 👆 Whole Palm Swipe Up (vertical, no pinch) → Currently unused
+        // Can be mapped to a future action if needed
+        break
       case 'Palm_Swipe_Left':  // 👈 Whole Palm Swipe Left (side of palm, no pinch) → Enable/Show video player (immediate, no cooldown)
         handleShowVideoPlayer()
         break
@@ -360,7 +411,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
         handleHideVideoPlayer()
         break
     }
-  }, [handleZoomIn, handleZoomOut, handleScrollUp, handleScrollDown, handlePlayVideo, handlePauseVideo, handleHideVideoPlayer, handleShowVideoPlayer])
+  }, [handleZoomIn, handleZoomOut, handleScrollUp, handleScrollDown, handlePlayVideo, handlePauseVideo, handleHideVideoPlayer, handleShowVideoPlayer, onClose])
 
   // Initialize MediaPipe Gesture Recognizer
   const initializeGestureRecognizer = useCallback(async () => {
@@ -435,33 +486,41 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
         // Check for custom gestures - PRIORITY DETECTION
         let customGestureDetected = false
         if (results.landmarks && results.landmarks.length > 0) {
-          // First check for whole palm swipe (no pinch required - side of palm movement)
-          const palmSwipeDirection = detectPalmSwipe(results.landmarks[0])
-          if (palmSwipeDirection) {
-            setGestureDetected(palmSwipeDirection)
-            triggerGestureAction(palmSwipeDirection)
+          // First check for whole palm swipe down (vertical movement - no pinch required)
+          const palmSwipeVertical = detectPalmSwipeDown(results.landmarks[0])
+          if (palmSwipeVertical) {
+            setGestureDetected(palmSwipeVertical)
+            triggerGestureAction(palmSwipeVertical)
             customGestureDetected = true
           } else {
-            // If not palm swiping, check for pinch-based swipe
-            const swipeDirection = detectHorizontalSwipe(results.landmarks[0])
-            if (swipeDirection) {
-              setGestureDetected(swipeDirection)
-              triggerGestureAction(swipeDirection)
+            // If not vertical swiping, check for horizontal whole palm swipe (no pinch required - side of palm movement)
+            const palmSwipeDirection = detectPalmSwipe(results.landmarks[0])
+            if (palmSwipeDirection) {
+              setGestureDetected(palmSwipeDirection)
+              triggerGestureAction(palmSwipeDirection)
               customGestureDetected = true
             } else {
-              // If not swiping, check for Zero gesture (O-shape with extended fingers)
-              const isZero = detectZeroGesture(results.landmarks[0])
-              if (isZero) {
-                setGestureDetected('Zero_Gesture')
-                triggerGestureAction('Zero_Gesture')
+              // If not palm swiping, check for pinch-based swipe
+              const swipeDirection = detectHorizontalSwipe(results.landmarks[0])
+              if (swipeDirection) {
+                setGestureDetected(swipeDirection)
+                triggerGestureAction(swipeDirection)
                 customGestureDetected = true
               } else {
-                // If not Zero, check for OK gesture (simple pinch)
-                const isOK = detectOKGesture(results.landmarks[0])
-                if (isOK) {
-                  setGestureDetected('OK_Gesture')
-                  triggerGestureAction('OK_Gesture')
+                // If not swiping, check for Zero gesture (O-shape with extended fingers)
+                const isZero = detectZeroGesture(results.landmarks[0])
+                if (isZero) {
+                  setGestureDetected('Zero_Gesture')
+                  triggerGestureAction('Zero_Gesture')
                   customGestureDetected = true
+                } else {
+                  // If not Zero, check for OK gesture (simple pinch)
+                  const isOK = detectOKGesture(results.landmarks[0])
+                  if (isOK) {
+                    setGestureDetected('OK_Gesture')
+                    triggerGestureAction('OK_Gesture')
+                    customGestureDetected = true
+                  }
                 }
               }
             }
@@ -553,6 +612,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
     // Clear palm position history when camera stops
     palmPositionHistoryRef.current = []
     palmSwipeHistoryRef.current = []
+    palmSwipeVerticalHistoryRef.current = []
   }, [])
 
   const toggleCamera = () => {
@@ -782,6 +842,14 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
               className="w-full justify-start text-left bg-slate-900/50 border-slate-700 hover:bg-slate-800 text-white"
             >
               <span className="text-xs">👋 Hide Video Player: Swipe</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onClose}
+              className="w-full justify-start text-left bg-slate-900/50 border-slate-700 hover:bg-slate-800 text-white border-red-500/50 hover:border-red-500"
+            >
+              <span className="text-xs">✋ Disable Camera: Close Palm</span>
             </Button>
           </div>
         </div>
