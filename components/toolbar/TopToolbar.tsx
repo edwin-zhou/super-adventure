@@ -26,7 +26,7 @@ export function TopToolbar() {
   return (
     <>
       <TooltipProvider>
-        <div className="fixed left-4 top-4 z-50">
+        <div className="fixed left-4 bottom-4 z-50">
           <div className="flex gap-2 bg-slate-800/90 backdrop-blur-sm border border-slate-700 rounded-lg px-4 py-2 shadow-lg">
             {/* Gesture Control Button */}
             <Tooltip>
@@ -49,7 +49,7 @@ export function TopToolbar() {
 
           {/* Gesture Control Toggle */}
           {showGestureControl && (
-            <div className="absolute top-16 left-0 bg-slate-800/95 backdrop-blur-sm border border-slate-700 rounded-lg p-4 shadow-lg w-64">
+            <div className="absolute bottom-16 left-0 bg-slate-800/95 backdrop-blur-sm border border-slate-700 rounded-lg p-4 shadow-lg w-64">
               <div className="flex items-center justify-between">
                 <Label className="text-sm text-white">Gesture Control</Label>
                 <button

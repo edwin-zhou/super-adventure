@@ -18,9 +18,9 @@ interface VideoPlayerProps {
 
 export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDrop, isDragging }: VideoPlayerProps) {
   const [localVideoUrl, setLocalVideoUrl] = useState('')
-  const [showUrlInput, setShowUrlInput] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const urlInputRef = useRef<HTMLInputElement>(null)
   
   const videoPlayerAction = useWhiteboardStore((state) => state.videoPlayerAction)
   const setVideoPlayerAction = useWhiteboardStore((state) => state.setVideoPlayerAction)
@@ -37,7 +37,6 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
     if (storeVideoUrl) {
       setLocalVideoUrl(storeVideoUrl)
       setStoreVideoUrl(null) // Clear after consuming
-      setShowUrlInput(false)
     }
   }, [storeVideoUrl, setStoreVideoUrl])
   
@@ -211,13 +210,14 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
     if (file && file.type.startsWith('video/')) {
       const url = URL.createObjectURL(file)
       setVideoUrl(url)
-      setShowUrlInput(false)
     }
   }
 
-  const handleUrlSubmit = () => {
-    if (videoUrl.trim()) {
-      setShowUrlInput(false)
+  const handleUrlSubmit = (e?: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e && e.key !== 'Enter') return
+    if (localVideoUrl.trim()) {
+      // URL is already set in localVideoUrl, just ensure it's applied
+      // The videoUrl derived value will use it
     }
   }
 
@@ -244,6 +244,34 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
         >
           <X size={20} />
         </button>
+      </div>
+
+      {/* URL Input - Always visible */}
+      <div className="px-4 py-3 bg-slate-800 border-b border-slate-700">
+        <div className="flex items-center gap-2">
+          <LinkIcon size={16} className="text-slate-400 flex-shrink-0" />
+          <Input
+            ref={urlInputRef}
+            type="url"
+            placeholder="Paste YouTube/Vimeo URL or direct video URL..."
+            value={localVideoUrl}
+            onChange={(e) => setLocalVideoUrl(e.target.value)}
+            onKeyPress={handleUrlSubmit}
+            className="flex-1 bg-slate-900 border-slate-600 text-white placeholder:text-slate-500"
+          />
+          <Button
+            onClick={() => document.getElementById('video-file-input')?.click()}
+            variant="ghost"
+            size="sm"
+            className="text-slate-400 hover:text-white flex-shrink-0"
+            title="Upload video file"
+          >
+            <Upload size={16} />
+          </Button>
+        </div>
+        <p className="text-xs text-slate-500 mt-1 ml-6">
+          Supports: YouTube, Vimeo, or direct video file URLs (.mp4, .webm, etc.)
+        </p>
       </div>
 
       {/* Video Player Area */}
@@ -280,20 +308,15 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
             )}
             <div className="mt-4 flex gap-2">
               <Button
-                onClick={() => setShowUrlInput(true)}
+                onClick={() => {
+                  setVideoUrl('')
+                  urlInputRef.current?.focus()
+                }}
                 variant="ghost"
                 className="text-white"
               >
-                <LinkIcon size={16} className="mr-2" />
-                Change URL
-              </Button>
-              <Button
-                onClick={() => document.getElementById('video-file-input')?.click()}
-                variant="ghost"
-                className="text-white"
-              >
-                <Upload size={16} className="mr-2" />
-                Upload New
+                <X size={16} className="mr-2" />
+                Clear Video
               </Button>
             </div>
           </div>
@@ -304,24 +327,7 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
             </div>
             <div>
               <h4 className="text-lg font-semibold text-white mb-2">No Video Loaded</h4>
-              <p className="text-sm text-slate-400 mb-6">Upload a video file or paste a YouTube/Vimeo URL</p>
-            </div>
-            <div className="flex flex-col gap-3">
-              <Button
-                onClick={() => document.getElementById('video-file-input')?.click()}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                <Upload size={18} className="mr-2" />
-                Upload Video
-              </Button>
-              <Button
-                onClick={() => setShowUrlInput(true)}
-                variant="ghost"
-                className="text-white border border-slate-600 hover:border-slate-500"
-              >
-                <LinkIcon size={18} className="mr-2" />
-                Paste Video URL
-              </Button>
+              <p className="text-sm text-slate-400 mb-6">Paste a URL above or upload a video file</p>
             </div>
           </div>
         )}
@@ -334,49 +340,6 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
           onChange={handleFileUpload}
         />
       </div>
-
-      {/* URL Input Modal */}
-      {showUrlInput && (
-        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 w-96">
-            <h4 className="text-white font-semibold mb-4">Enter Video URL</h4>
-            <Input
-              type="url"
-              placeholder="https://youtube.com/watch?v=... or direct video URL"
-              value={videoUrl}
-              onChange={(e) => setVideoUrl(e.target.value)}
-              className="mb-4 bg-slate-900 border-slate-600 text-white"
-              autoFocus
-              onKeyPress={(e) => {
-                if (e.key === 'Enter') {
-                  handleUrlSubmit()
-                }
-              }}
-            />
-            <p className="text-xs text-slate-400 mb-4">
-              Supports: YouTube, Vimeo, or direct video file URLs (.mp4, .webm, etc.)
-            </p>
-            <div className="flex gap-2 justify-end">
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setShowUrlInput(false)
-                  setVideoUrl('')
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleUrlSubmit}
-                className="bg-blue-600 hover:bg-blue-700"
-                disabled={!videoUrl.trim()}
-              >
-                Load Video
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

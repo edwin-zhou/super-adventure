@@ -88,6 +88,7 @@ export interface ImageElement extends BaseElement {
   width: number
   height: number
   imageObj?: HTMLImageElement
+  timestamps?: number[] // Optional array of timestamps (in seconds) associated with this image
 }
 
 // Union type for all elements

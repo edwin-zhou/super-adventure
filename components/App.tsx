@@ -9,7 +9,7 @@ import { VideoPlayer } from './video/VideoPlayer'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { useImageDrop } from '@/hooks/useImageDrop'
 import { useWhiteboardStore } from '@/stores/useWhiteboardStore'
-import { Video, GripVertical } from 'lucide-react'
+import { GripVertical } from 'lucide-react'
 import { Button } from './ui/button'
 
 function App() {
@@ -20,20 +20,11 @@ function App() {
   const isVideoPlayerOpen = useWhiteboardStore((state) => state.isVideoPlayerOpen)
   const setVideoPlayerOpen = useWhiteboardStore((state) => state.setVideoPlayerOpen)
   const resetViewport = useWhiteboardStore((state) => state.resetViewport)
-  
-  const handleToggleVideoPlayer = () => {
-    if (isVideoPlayerOpen) {
-      setVideoPlayerOpen(false)
-      resetViewport()
-    } else {
-      setVideoPlayerOpen(true)
-    }
-  }
   const [isSwapped, setIsSwapped] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   
   // Ref to access WhiteboardCanvas functions
-  const whiteboardRef = useRef<{ addImageToPage: (imageUrl: string, pageNumber: number, replace?: boolean) => void }>(null)
+  const whiteboardRef = useRef<{ addImageToPage: (imageUrl: string, pageNumber: number, replace?: boolean, timestamps?: number[]) => void }>(null)
 
   const handleDragStart = (e: React.DragEvent) => {
     setIsDragging(true)
@@ -56,8 +47,8 @@ function App() {
   }
 
   // Callback for ChatBot to add images to whiteboard pages
-  const handleAddImageToPage = useCallback((imageUrl: string, pageNumber: number, replace?: boolean) => {
-    whiteboardRef.current?.addImageToPage(imageUrl, pageNumber, replace)
+  const handleAddImageToPage = useCallback((imageUrl: string, pageNumber: number, replace?: boolean, timestamps?: number[]) => {
+    whiteboardRef.current?.addImageToPage(imageUrl, pageNumber, replace, timestamps)
   }, [])
 
   const videoPlayerSection = (
@@ -124,16 +115,6 @@ function App() {
         </>
       )}
 
-      {/* Bottom Control Bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 flex justify-center gap-3 py-2 bg-slate-800/90 backdrop-blur-sm border-t border-slate-700">
-        <Button
-          onClick={handleToggleVideoPlayer}
-          className="bg-slate-700 hover:bg-slate-600 px-6 py-2 text-white shadow-lg"
-        >
-          <Video size={18} className="mr-2" />
-          {isVideoPlayerOpen ? 'Hide' : 'Show'} Video Player
-        </Button>
-      </div>
     </div>
   )
 }

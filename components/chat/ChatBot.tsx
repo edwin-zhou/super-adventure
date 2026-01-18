@@ -72,7 +72,7 @@ interface NoteStyleSample {
 }
 
 interface ChatBotProps {
-  onAddImageToPage?: (imageUrl: string, pageNumber: number, replace?: boolean) => void
+  onAddImageToPage?: (imageUrl: string, pageNumber: number, replace?: boolean, timestamps?: number[]) => void
 }
 
 // Fetch video title from YouTube oEmbed API
@@ -173,7 +173,7 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
       if (result.whiteboardActions && result.whiteboardActions.length > 0 && onAddImageToPage) {
         for (const action of result.whiteboardActions) {
           if (action.type === 'add_full_page_image') {
-            onAddImageToPage(action.imageUrl, action.pageNumber, action.replace)
+            onAddImageToPage(action.imageUrl, action.pageNumber, action.replace, action.timestamps)
           }
         }
       }
@@ -284,11 +284,16 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
   const addPendingVideo = useCallback(async (url: string) => {
     const normalizedUrl = normalizeYoutubeUrl(url)
     
+    // Get video player store actions
+    const { setVideoPlayerUrl, setVideoPlayerOpen } = useWhiteboardStore.getState()
+    
     // Check if already at max or URL already exists
+    let shouldAddVideo = false
     setPendingVideos(prev => {
       if (prev.length >= MAX_VIDEOS) return prev
       if (prev.some(v => v.url === normalizedUrl)) return prev
       
+      shouldAddVideo = true
       const newVideo: PendingVideo = {
         id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
         url: normalizedUrl,
@@ -297,6 +302,12 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
       }
       return [...prev, newVideo]
     })
+
+    // If video was added, also set it in the video player (use the most recent video)
+    if (shouldAddVideo) {
+      setVideoPlayerUrl(normalizedUrl)
+      setVideoPlayerOpen(true)
+    }
 
     // Fetch title asynchronously
     const title = await fetchVideoTitle(normalizedUrl)
@@ -402,7 +413,7 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
       if (result.whiteboardActions && result.whiteboardActions.length > 0 && onAddImageToPage) {
         for (const action of result.whiteboardActions) {
           if (action.type === 'add_full_page_image') {
-            onAddImageToPage(action.imageUrl, action.pageNumber, action.replace)
+            onAddImageToPage(action.imageUrl, action.pageNumber, action.replace, action.timestamps)
           }
         }
       }
@@ -685,9 +696,9 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
       <div className="fixed bottom-4 right-4 z-50">
         <Button
           onClick={() => setIsMinimized(false)}
-          className="rounded-full w-14 h-14 bg-theme-primary bg-theme-primary-hover shadow-lg"
+          className="rounded-full w-14 h-14 bg-slate-700 hover:bg-slate-600 shadow-lg"
         >
-          <Bot size={24} />
+          <Bot size={24} className="fill-blue-500 text-blue-500" />
         </Button>
       </div>
     )

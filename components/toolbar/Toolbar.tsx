@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   Menu,
   Plus,
+  Video,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -74,10 +75,22 @@ function ToolButton({ tool, icon, label, shortcut, tooltipSide = 'right' }: Tool
 
 export function Toolbar() {
   const { viewport, undo, redo, history, currentTool, setTool } = useWhiteboardStore()
+  const isVideoPlayerOpen = useWhiteboardStore((state) => state.isVideoPlayerOpen)
+  const setVideoPlayerOpen = useWhiteboardStore((state) => state.setVideoPlayerOpen)
+  const resetViewport = useWhiteboardStore((state) => state.resetViewport)
   const [showSettings, setShowSettings] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [showPlusMenu, setShowPlusMenu] = useState(false)
   const [showImageUpload, setShowImageUpload] = useState(false)
+  
+  const handleToggleVideoPlayer = () => {
+    if (isVideoPlayerOpen) {
+      setVideoPlayerOpen(false)
+      resetViewport()
+    } else {
+      setVideoPlayerOpen(true)
+    }
+  }
 
   const canUndo = history.past.length > 0
   const canRedo = history.future.length > 0
@@ -106,7 +119,7 @@ export function Toolbar() {
   if (isCollapsed) {
     return (
       <TooltipProvider>
-        <div className="fixed left-4 top-20 z-50">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -116,7 +129,7 @@ export function Toolbar() {
                 <Menu size={20} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right">Show Toolbar</TooltipContent>
+            <TooltipContent side="bottom">Show Toolbar</TooltipContent>
           </Tooltip>
         </div>
       </TooltipProvider>
@@ -125,25 +138,25 @@ export function Toolbar() {
 
   return (
     <TooltipProvider>
-      <div className="fixed left-4 top-20 z-50">
-        <div className="flex flex-col gap-1 bg-slate-800/90 backdrop-blur-sm border border-slate-700 rounded-lg p-2 shadow-lg">
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50">
+        <div className="flex flex-row items-center gap-1 bg-slate-800/90 backdrop-blur-sm border border-slate-700 rounded-lg p-2 shadow-lg">
           {/* Drawing Tools */}
           <ToolButton
             tool="pen"
             icon={<Pen size={18} />}
             label="Pen"
             shortcut="P"
-            tooltipSide="right"
+            tooltipSide="bottom"
           />
           <ToolButton
             tool="select"
             icon={<BoxSelect size={18} />}
             label="Select Area"
             shortcut="V"
-            tooltipSide="right"
+            tooltipSide="bottom"
           />
           
-          <Separator className="my-1 bg-slate-600" />
+          <Separator orientation="vertical" className="mx-1 h-8 bg-slate-600" />
           
           {/* Plus Menu */}
           <div className="relative">
@@ -166,13 +179,13 @@ export function Toolbar() {
                   <Plus size={18} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="right">Add Content</TooltipContent>
+              <TooltipContent side="bottom">Add Content</TooltipContent>
             </Tooltip>
             
             {/* Plus Menu Dropdown */}
             {showPlusMenu && (
               <div 
-                className="absolute left-12 top-0 bg-slate-800 border border-slate-700 rounded-lg shadow-lg py-2 w-48 z-[60]"
+                className="absolute top-12 left-1/2 -translate-x-1/2 bg-slate-800 border border-slate-700 rounded-lg shadow-lg py-2 w-48 z-[60]"
                 onClick={(e) => e.stopPropagation()}
               >
                 <button
@@ -221,7 +234,7 @@ export function Toolbar() {
             )}
           </div>
           
-          <Separator className="my-1 bg-slate-600" />
+          <Separator orientation="vertical" className="mx-1 h-8 bg-slate-600" />
           
           {/* History Controls */}
           <Tooltip>
@@ -236,7 +249,7 @@ export function Toolbar() {
                 <Undo2 size={18} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right">
+            <TooltipContent side="bottom">
               <span>Undo</span>
               <kbd className="ml-2 px-1.5 py-0.5 text-xs bg-slate-700 rounded">
                 Ctrl+Z
@@ -256,7 +269,7 @@ export function Toolbar() {
                 <Redo2 size={18} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right">
+            <TooltipContent side="bottom">
               <span>Redo</span>
               <kbd className="ml-2 px-1.5 py-0.5 text-xs bg-slate-700 rounded">
                 Ctrl+Y
@@ -264,7 +277,31 @@ export function Toolbar() {
             </TooltipContent>
           </Tooltip>
           
-          <Separator className="my-1 bg-slate-600" />
+          <Separator orientation="vertical" className="mx-1 h-8 bg-slate-600" />
+          
+          {/* Video Player Toggle */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  'w-10 h-10 transition-all',
+                  isVideoPlayerOpen
+                    ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                    : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+                )}
+                onClick={handleToggleVideoPlayer}
+              >
+                <Video size={18} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {isVideoPlayerOpen ? 'Hide' : 'Show'} Video Player
+            </TooltipContent>
+          </Tooltip>
+          
+          <Separator orientation="vertical" className="mx-1 h-8 bg-slate-600" />
           
           {/* Settings Button */}
           <Tooltip>
@@ -278,10 +315,10 @@ export function Toolbar() {
                 <Settings size={18} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right">Settings</TooltipContent>
+            <TooltipContent side="bottom">Settings</TooltipContent>
           </Tooltip>
           
-          <Separator className="my-1 bg-slate-600" />
+          <Separator orientation="vertical" className="mx-1 h-8 bg-slate-600" />
           
           {/* Collapse Button */}
           <Tooltip>
@@ -292,14 +329,14 @@ export function Toolbar() {
                 className="w-10 h-10"
                 onClick={() => setIsCollapsed(true)}
               >
-                <ChevronLeft size={18} />
+                <ChevronLeft size={18} className="rotate-90" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right">Hide Toolbar</TooltipContent>
+            <TooltipContent side="bottom">Hide Toolbar</TooltipContent>
           </Tooltip>
           
           {/* Zoom Percentage Display */}
-          <div className="text-xs text-center text-slate-400 mt-1">
+          <div className="text-xs text-center text-slate-400 px-2">
             {Math.round(viewport.scale * 100)}%
           </div>
         </div>

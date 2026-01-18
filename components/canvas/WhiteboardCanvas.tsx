@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react'
+import { useRef, useEffect, useState, forwardRef, useImperativeHandle, useCallback } from 'react'
 import { Stage, Layer, Rect, Line } from 'react-konva'
 import Konva from 'konva'
 import { useWhiteboardStore } from '@/stores/useWhiteboardStore'
@@ -23,7 +23,7 @@ interface WhiteboardCanvasProps {
 }
 
 export interface WhiteboardCanvasRef {
-  addImageToPage: (imageUrl: string, pageNumber: number, replace?: boolean) => void
+  addImageToPage: (imageUrl: string, pageNumber: number, replace?: boolean, timestamps?: number[]) => void
 }
 
 export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
@@ -59,7 +59,14 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
     deleteElement,
     setLassoMaskContext,
     clearLassoMaskContext,
+    setVideoPlayerTimestamp,
+    setVideoPlayerOpen,
+    setVideoPlayerAction,
   } = useWhiteboardStore()
+  
+  // Get isVideoPlayerOpen and videoPlayerUrl from store (prop might be stale)
+  const isVideoPlayerOpenFromStore = useWhiteboardStore((state) => state.isVideoPlayerOpen)
+  const videoPlayerUrl = useWhiteboardStore((state) => state.videoPlayerUrl)
 
   // Set dimensions on client-side mount (SSR-safe)
   useEffect(() => {
@@ -143,18 +150,20 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
   }
 
   // Function to add an image to a specific page
-  const addImageToPage = (imageUrl: string, pageNumber: number, replace: boolean = true) => {
-    // Ensure the page exists - create pages if pageNumber is out of bounds
-    const currentPages = [...pages] // Create a copy to avoid mutating state directly
+  const addImageToPage = useCallback((imageUrl: string, pageNumber: number, replace: boolean = true, timestamps?: number[]) => {
+    // Calculate what pages we need and the page Y position
+    const currentPages = [...pages]
     while (currentPages.length < pageNumber) {
       const newPageY = currentPages.length * (PAGE_HEIGHT + PAGE_MARGIN)
       currentPages.push({ id: currentPages.length + 1, y: newPageY })
     }
+    
+    // Update pages state (if needed)
     if (currentPages.length > pages.length) {
       setPages(currentPages)
     }
     
-    // Get the page's Y position - handle both existing and newly created pages
+    // Get the page's Y position
     const page = currentPages.find(p => p.id === pageNumber) || currentPages[pageNumber - 1]
     const pageY = page ? page.y : (pageNumber - 1) * (PAGE_HEIGHT + PAGE_MARGIN)
     
@@ -221,15 +230,17 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       height: 1536,
       draggable: true,
       visible: true,
+      timestamps: timestamps, // Store timestamps with the image element
     }
     
+    // Add element outside of setPages callback
     addElement(imageElement)
-  }
+  }, [pages, elements, addElement, deleteElement])
 
   // Expose addImageToPage to parent via ref
   useImperativeHandle(ref, () => ({
     addImageToPage,
-  }), [pages, addElement, deleteElement, elements])
+  }), [addImageToPage])
 
   // Handle click-to-create for text and sticky notes
   const handleClickToCreate = (point: { x: number; y: number }) => {
@@ -274,37 +285,59 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
     }
   }
 
-  // Handle window resize
-  useEffect(() => {
-    const handleResize = () => {
-      if (stageRef.current) {
-        const container = stageRef.current.container()
-        stageRef.current.width(container.offsetWidth)
-        stageRef.current.height(container.offsetHeight)
-        
-        // Recenter pages horizontally within the container
-        const containerWidth = container.offsetWidth
-        const centeredX = (containerWidth - PAGE_WIDTH * viewport.scale) / 2
-        setViewport({ x: centeredX })
-      }
-    }
-
-    handleResize()
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [viewport.scale, isVideoPlayerOpen])
-
-  // Position the first page centered on initial load
-  useEffect(() => {
+  // Handle centering when container size changes
+  const recenterCanvas = useCallback(() => {
     if (stageRef.current) {
       const container = stageRef.current.container()
+      stageRef.current.width(container.offsetWidth)
+      stageRef.current.height(container.offsetHeight)
+      
+      // Recenter pages horizontally within the container
       const containerWidth = container.offsetWidth
-      const centerX = (containerWidth - PAGE_WIDTH) / 2
-      const topY = 50
-      setViewport({ x: centerX, y: topY, scale: 1 })
+      const centeredX = (containerWidth - PAGE_WIDTH * viewport.scale) / 2
+      setViewport({ x: centeredX })
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVideoPlayerOpen])
+  }, [viewport.scale, setViewport])
+
+  // Handle window resize
+  useEffect(() => {
+    recenterCanvas()
+    window.addEventListener('resize', recenterCanvas)
+    return () => window.removeEventListener('resize', recenterCanvas)
+  }, [recenterCanvas])
+
+  // Recenter when video player opens/closes - wait for CSS transition to complete
+  useEffect(() => {
+    // The container has a 300ms CSS transition, so we need to wait for it to complete
+    // Also recenter multiple times during the transition for smoother experience
+    const timeouts: NodeJS.Timeout[] = []
+    
+    // Recenter at various points during and after the transition
+    const recenterTimes = [0, 50, 150, 320]
+    recenterTimes.forEach(delay => {
+      timeouts.push(setTimeout(recenterCanvas, delay))
+    })
+    
+    return () => {
+      timeouts.forEach(t => clearTimeout(t))
+    }
+  }, [isVideoPlayerOpen, recenterCanvas])
+
+  // Use ResizeObserver as a fallback to catch any container size changes
+  useEffect(() => {
+    if (!stageRef.current) return
+    
+    const container = stageRef.current.container()
+    const resizeObserver = new ResizeObserver(() => {
+      recenterCanvas()
+    })
+    
+    resizeObserver.observe(container)
+    
+    return () => {
+      resizeObserver.disconnect()
+    }
+  }, [recenterCanvas])
 
   // Constrain viewport to stay within page bounds
   const constrainViewport = (_x: number, y: number, scale: number) => {
@@ -673,6 +706,77 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
     return renderElement(element)
   }
 
+  // Get all timestamps for a specific page
+  const getPageTimestamps = (pageId: number): number[] => {
+    const page = pages.find(p => p.id === pageId)
+    if (!page) return []
+    
+    const pageTop = page.y
+    const pageBottom = page.y + PAGE_HEIGHT
+    
+    // Find all image elements on this page
+    const pageImages = elements.filter((el) => {
+      if (el.type !== 'image') return false
+      const imgEl = el as ImageElement
+      const elTop = el.y
+      const elBottom = el.y + (imgEl.height || 0)
+      return (elTop < pageBottom && elBottom > pageTop)
+    }) as ImageElement[]
+    
+    // Collect all unique timestamps from images on this page
+    const allTimestamps = new Set<number>()
+    pageImages.forEach((img) => {
+      if (img.timestamps && img.timestamps.length > 0) {
+        img.timestamps.forEach((ts) => allTimestamps.add(ts))
+      }
+    })
+    
+    // Sort timestamps
+    return Array.from(allTimestamps).sort((a, b) => a - b)
+  }
+
+  // Format timestamp as MM:SS
+  const formatTimestamp = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60)
+    const secs = Math.floor(seconds % 60)
+    return `${mins}:${String(secs).padStart(2, '0')}`
+  }
+
+  // Handle timestamp link click
+  const handleTimestampClick = (timestamp: number) => {
+    // Open video player if not already open
+    if (!isVideoPlayerOpenFromStore) {
+      setVideoPlayerOpen(true)
+    }
+    
+    // If video URL exists, ensure it's loaded and started before seeking
+    if (videoPlayerUrl) {
+      // Wait for video/iframe to load and initialize
+      // YouTube/Vimeo iframes need more time to be ready for API commands
+      setTimeout(() => {
+        // Set timestamp first
+        setVideoPlayerTimestamp(timestamp)
+        // Retry setting timestamp after a delay (for iframes that need more time)
+        setTimeout(() => {
+          setVideoPlayerTimestamp(timestamp)
+        }, 500)
+        // Then play after timestamp is set (allows seek to complete)
+        setTimeout(() => {
+          setVideoPlayerAction('play')
+          // Set timestamp one more time after play starts (ensures seek works)
+          setTimeout(() => {
+            setVideoPlayerTimestamp(timestamp)
+          }, 300)
+        }, 800)
+      }, 1000)
+    } else {
+      // If no video URL, just set timestamp (video might be loaded via other means)
+      setVideoPlayerTimestamp(timestamp)
+      // Start playing the video
+      setVideoPlayerAction('play')
+    }
+  }
+
   return (
     <div className="w-full h-full relative whiteboard-canvas overflow-hidden" style={{ backgroundColor: '#d1d5db' }}>
       {/* Lasso Selection Tooltip - Only shown after completion */}
@@ -695,6 +799,40 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       >
         + Add Page
       </button>
+
+      {/* Timestamp Links on Right Edge of Each Page */}
+      {pages.map((page) => {
+        const timestamps = getPageTimestamps(page.id)
+        if (timestamps.length === 0) return null
+        
+        // Calculate page position in viewport coordinates
+        const pageX = viewport.x + PAGE_WIDTH * viewport.scale
+        const pageY = viewport.y + page.y * viewport.scale
+        const pageHeight = PAGE_HEIGHT * viewport.scale
+        
+        return (
+          <div
+            key={`timestamps-${page.id}`}
+            className="absolute z-40 flex flex-col gap-1"
+            style={{
+              left: `${pageX + 10}px`,
+              top: `${pageY}px`,
+              maxHeight: `${pageHeight}px`,
+            }}
+          >
+            {timestamps.map((timestamp, index) => (
+              <button
+                key={`${page.id}-${timestamp}-${index}`}
+                onClick={() => handleTimestampClick(timestamp)}
+                className="px-2 py-1 text-xs font-mono bg-blue-600/90 hover:bg-blue-700 text-white rounded shadow-md hover:shadow-lg transition-all whitespace-nowrap"
+                title={`Seek to ${formatTimestamp(timestamp)}`}
+              >
+                {formatTimestamp(timestamp)}
+              </button>
+            ))}
+          </div>
+        )
+      })}
 
       <Stage
         ref={stageRef}

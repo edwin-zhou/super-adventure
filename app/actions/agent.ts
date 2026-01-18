@@ -602,7 +602,7 @@ export async function invokeAgent(
 ): Promise<{
   response: string;
   generatedImages?: Array<{ id: string; prompt: string; url: string }>;
-  whiteboardActions?: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number; replace?: boolean }>;
+  whiteboardActions?: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number; replace?: boolean; timestamps?: number[] }>;
   videoActions?: Array<{ type: string; timestamp?: number; videoUrl?: string }>;
   availableNoteStyleIds?: string[];
 }> {
@@ -657,7 +657,7 @@ export async function invokeAgent(
   const generatedImages: Array<{ id: string; prompt: string; url: string }> = [];
   
   // Track whiteboard actions to return to client
-  const whiteboardActions: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number; replace?: boolean }> = [];
+  const whiteboardActions: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number; replace?: boolean; timestamps?: number[] }> = [];
   
   // Track video actions to return to client
   const videoActions: Array<{ type: string; timestamp?: number; videoUrl?: string }> = [];
@@ -775,6 +775,7 @@ export async function invokeAgent(
                 imageUrl: cached.imageUrl,
                 pageNumber: functionResult.pageNumber,
                 replace: functionResult.replace,
+                timestamps: cached.timestamps, // Include timestamps from cache
               });
             }
           }
