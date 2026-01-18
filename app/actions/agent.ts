@@ -132,7 +132,7 @@ const generateImageDeclaration = {
 // Define the image editing function declaration (Gemini format)
 const editImageDeclaration = {
   name: 'edit_image',
-  description: 'Edit or modify an existing image that was previously generated in this conversation. Use this when the user wants to change, modify, update, or refine an image that already exists. The user might say things like "make it blue", "add a hat", "remove the background", "make it more realistic", etc.',
+  description: 'Edit or modify an existing image that was previously generated in this conversation. Use this when the user wants to change, modify, update, or refine an image that already exists. If a mask context is available (user has selected a region with the lasso tool), the mask will be automatically provided to edit only that region (inpainting). Otherwise, edits will apply to the entire image. The user might say things like "make it blue", "add a hat", "remove the background", "make it more realistic", "add a cat here" (when a region is selected), etc.',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -142,7 +142,7 @@ const editImageDeclaration = {
       },
       editPrompt: {
         type: Type.STRING,
-        description: 'A description of the edits to make to the image. Be specific about what changes should be made.',
+        description: 'A description of the edits to make to the image. Be specific about what changes should be made. If a mask is available, describe what should appear in the selected region.',
       },
       size: {
         type: Type.STRING,
@@ -183,35 +183,6 @@ const addToPageDeclaration = {
   },
 };
 
-// Define the edit image with mask function declaration (Gemini format)
-const editImageWithMaskDeclaration = {
-  name: 'edit_image_with_mask',
-  description: 'Edit a specific region of an image using a mask. The mask defines which area of the image to modify (inpainting). Use this when the user has selected a region on an image using the lasso tool and wants to edit only that region. The mask is automatically provided from the lasso selection.',
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      imageId: {
-        type: Type.STRING,
-        description: 'The ID of the image to edit. This should match the image that was selected with the lasso.',
-      },
-      editPrompt: {
-        type: Type.STRING,
-        description: 'A description of what to add, change, or modify in the masked region. Be specific about what should appear in the selected area.',
-      },
-      size: {
-        type: Type.STRING,
-        enum: ['1024x1024', '1024x1536', '1536x1024', 'auto'],
-        description: 'The size of the output image. Default is 1024x1536 (portrait, full-page).',
-      },
-      quality: {
-        type: Type.STRING,
-        enum: ['low', 'medium', 'high', 'auto'],
-        description: 'The quality level of the output image. Default is auto.',
-      },
-    },
-    required: ['imageId', 'editPrompt'],
-  },
-};
 
 // Execute the image generation function
 async function executeGenerateImage(args: { prompt: string; referenceImageIds?: string[]; size?: string; quality?: string }): Promise<{ success: boolean; imageId?: string; message: string; error?: string }> {
@@ -315,8 +286,8 @@ async function executeGenerateImage(args: { prompt: string; referenceImageIds?: 
   }
 }
 
-// Execute the image editing function
-async function executeEditImage(args: { imageId: string; editPrompt: string; size?: string; quality?: string }): Promise<{ success: boolean; imageId?: string; message: string; error?: string }> {
+// Execute the image editing function (supports both full-image and masked editing)
+async function executeEditImage(args: { imageId: string; editPrompt: string; maskBase64?: string; size?: string; quality?: string }): Promise<{ success: boolean; imageId?: string; message: string; error?: string }> {
   try {
     const client = getOpenAIClient();
     
@@ -334,13 +305,23 @@ async function executeEditImage(args: { imageId: string; editPrompt: string; siz
     const imageBuffer = Buffer.from(sourceImage.base64Data, 'base64');
     const imageFile = new File([imageBuffer], 'source.png', { type: 'image/png' });
     
-    const response = await client.images.edit({
+    // Build the edit request - include mask if provided
+    const editRequest: any = {
       model: 'gpt-image-1.5',
       image: imageFile,
       prompt: args.editPrompt,
       size: (args.size || '1024x1536') as any,
       quality: (args.quality || 'auto') as any,
-    });
+    };
+    
+    // Add mask if provided (for inpainting)
+    if (args.maskBase64) {
+      const maskBuffer = Buffer.from(args.maskBase64, 'base64');
+      const maskFile = new File([maskBuffer], 'mask.png', { type: 'image/png' });
+      editRequest.mask = maskFile;
+    }
+    
+    const response = await client.images.edit(editRequest);
 
     if (!response.data || response.data.length === 0) {
       throw new Error('No image data returned from API');
@@ -355,17 +336,22 @@ async function executeEditImage(args: { imageId: string; editPrompt: string; siz
     const newImageId = generateImageId();
     
     // Cache the edited image
+    const editType = args.maskBase64 ? 'Masked edit' : 'Edited';
     imageCache.set(newImageId, {
       imageUrl,
       base64Data: imageData,
-      prompt: `Edited: ${args.editPrompt} (from ${args.imageId})`,
+      prompt: `${editType}: ${args.editPrompt} (from ${args.imageId})`,
       format: 'png',
     });
+    
+    const editMessage = args.maskBase64 
+      ? `Successfully edited masked region. New image ID: "${newImageId}". Edit applied: "${args.editPrompt}"`
+      : `Successfully edited image. New image ID: "${newImageId}". Edit applied: "${args.editPrompt}"`;
     
     return {
       success: true,
       imageId: newImageId,
-      message: `Successfully edited image. New image ID: "${newImageId}". Edit applied: "${args.editPrompt}"`,
+      message: editMessage,
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -373,72 +359,6 @@ async function executeEditImage(args: { imageId: string; editPrompt: string; siz
       success: false,
       error: errorMessage,
       message: `Failed to edit image: ${errorMessage}`,
-    };
-  }
-}
-
-// Execute the edit image with mask function
-async function executeEditImageWithMask(args: { imageId: string; editPrompt: string; maskBase64: string; size?: string; quality?: string }): Promise<{ success: boolean; imageId?: string; message: string; error?: string }> {
-  try {
-    const client = getOpenAIClient();
-    
-    // Get the source image from cache
-    const sourceImage = imageCache.get(args.imageId);
-    if (!sourceImage) {
-      return {
-        success: false,
-        error: 'Image not found',
-        message: `Could not find image with ID "${args.imageId}". The image may have expired or the ID is incorrect.`,
-      };
-    }
-    
-    // Convert base64 to File objects for the API
-    const imageBuffer = Buffer.from(sourceImage.base64Data, 'base64');
-    const imageFile = new File([imageBuffer], 'source.png', { type: 'image/png' });
-    
-    const maskBuffer = Buffer.from(args.maskBase64, 'base64');
-    const maskFile = new File([maskBuffer], 'mask.png', { type: 'image/png' });
-    
-    const response = await client.images.edit({
-      model: 'gpt-image-1.5',
-      image: imageFile,
-      mask: maskFile,
-      prompt: args.editPrompt,
-      size: (args.size || '1024x1536') as any,
-      quality: (args.quality || 'auto') as any,
-    });
-
-    if (!response.data || response.data.length === 0) {
-      throw new Error('No image data returned from API');
-    }
-
-    const imageData = response.data[0].b64_json;
-    if (!imageData) {
-      throw new Error('Image data is empty');
-    }
-
-    const imageUrl = imageDataToUrl(imageData, 'png');
-    const newImageId = generateImageId();
-    
-    // Cache the edited image
-    imageCache.set(newImageId, {
-      imageUrl,
-      base64Data: imageData,
-      prompt: `Masked edit: ${args.editPrompt} (from ${args.imageId})`,
-      format: 'png',
-    });
-    
-    return {
-      success: true,
-      imageId: newImageId,
-      message: `Successfully edited masked region. New image ID: "${newImageId}". Edit applied: "${args.editPrompt}"`,
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      success: false,
-      error: errorMessage,
-      message: `Failed to edit image with mask: ${errorMessage}`,
     };
   }
 }
@@ -497,13 +417,9 @@ You have access to four main tools:
 2. **edit_image**: Use this to MODIFY an existing image that was previously generated.
    - Use when the user wants to change, update, refine, or modify an existing image
    - You MUST provide the imageId of the image to edit
-   - Examples: "make it blue", "add a hat", "make it more realistic", "remove the text"
-
-3. **edit_image_with_mask**: Use this to EDIT A SPECIFIC REGION of an image (inpainting).
-   - Use when a mask context is available (user has selected a region with the lasso tool)
-   - The mask will be automatically provided - you just need the imageId and editPrompt
-   - ONLY use this when explicitly told a mask is available in the context
-   - Examples: "add a cat here", "change this to blue", "put a tree in the selected area"
+   - If a mask context is available (user has selected a region with the lasso tool), the mask will be automatically provided to edit only that region (inpainting)
+   - If no mask is available, edits will apply to the entire image
+   - Examples: "make it blue", "add a hat", "make it more realistic", "remove the text", "add a cat here" (when region is selected)
 
 4. **add_to_page**: Use this to add a generated image to a specific page on the whiteboard.
    - Use when the user asks to add, place, or put an image onto the whiteboard
@@ -530,8 +446,7 @@ DECISION GUIDE:
 - First image → use generate_image (no references)
 - Notes/summary from video → use generate_image (size: 1024x1536, with note style as reference if available)
 - User wants something "like" existing images → use generate_image with referenceImageIds
-- User wants to modify entire image → use edit_image with imageId
-- User has selected a region with lasso and wants to edit it → use edit_image_with_mask (mask will be provided)
+- User wants to modify an image → use edit_image with imageId (mask will be automatically provided if a region is selected)
 - User wants to add image to whiteboard → use add_to_page with imageId and pageNumber (replace=true by default)
 - User explicitly wants to keep existing content → use add_to_page with imageId, pageNumber, and replace=false
 
@@ -583,7 +498,7 @@ export async function invokeAgent(
   // Add mask context information if available
   let messageWithMask = message;
   if (maskContext) {
-    messageWithMask = `[MASK CONTEXT AVAILABLE: The user has selected a region on image "${maskContext.targetImageId}" using the lasso tool. Use edit_image_with_mask to edit only that region.]\n\n${message}`;
+    messageWithMask = `[MASK CONTEXT AVAILABLE: The user has selected a region on image "${maskContext.targetImageId}" using the lasso tool. Use edit_image to edit only that region - the mask will be automatically provided.]\n\n${message}`;
   }
   
   // Add the text message
@@ -598,9 +513,7 @@ export async function invokeAgent(
   // Configure the model with function declarations
   const config = {
     tools: [{
-      functionDeclarations: maskContext 
-        ? [generateImageDeclaration, editImageDeclaration, editImageWithMaskDeclaration, addToPageDeclaration]
-        : [generateImageDeclaration, editImageDeclaration, addToPageDeclaration],
+      functionDeclarations: [generateImageDeclaration, editImageDeclaration, addToPageDeclaration],
     }],
     systemInstruction: SYSTEM_PROMPT,
   };
@@ -656,7 +569,12 @@ export async function invokeAgent(
             }
           }
         } else if (functionName === 'edit_image') {
-          functionResult = await executeEditImage(functionArgs as { imageId: string; editPrompt: string; size?: string; quality?: string });
+          // Add mask from context if available
+          const editArgs = {
+            ...(functionArgs as { imageId: string; editPrompt: string; size?: string; quality?: string }),
+            ...(maskContext ? { maskBase64: maskContext.maskBase64 } : {}),
+          };
+          functionResult = await executeEditImage(editArgs);
           
           // Track edited image
           if (functionResult.success && functionResult.imageId) {
@@ -667,33 +585,6 @@ export async function invokeAgent(
                 prompt: cached.prompt,
                 url: cached.imageUrl,
               });
-            }
-          }
-        } else if (functionName === 'edit_image_with_mask') {
-          // Add the mask from context
-          if (!maskContext) {
-            functionResult = { 
-              success: false, 
-              error: 'No mask context available', 
-              message: 'Mask-based editing requires a lasso selection.' 
-            };
-          } else {
-            const argsWithMask = {
-              ...(functionArgs as { imageId: string; editPrompt: string; size?: string; quality?: string }),
-              maskBase64: maskContext.maskBase64,
-            };
-            functionResult = await executeEditImageWithMask(argsWithMask);
-            
-            // Track edited image
-            if (functionResult.success && functionResult.imageId) {
-              const cached = imageCache.get(functionResult.imageId);
-              if (cached) {
-                generatedImages.push({
-                  id: functionResult.imageId,
-                  prompt: cached.prompt,
-                  url: cached.imageUrl,
-                });
-              }
             }
           }
         } else if (functionName === 'add_to_page') {
