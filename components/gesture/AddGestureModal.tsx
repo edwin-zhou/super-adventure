@@ -13,7 +13,10 @@ interface AddGestureModalProps {
 }
 
 const GESTURE_TYPES = [
-  { value: 'two_finger_pinch', label: 'Two Finger Pinch', description: 'Pinch two fingers together' },
+  { value: 'two_finger_pinch', label: 'Two Finger Pinch', description: 'Pinch two fingers together (single hand)' },
+  { value: 'four_finger_pinch', label: 'Four Finger Pinch', description: 'Both index & middle fingers pinch together (two hands)', twoHands: true },
+  { value: 'two_palm_clap', label: 'Two Palm Clap', description: 'Two palms moving towards each other (two hands)', twoHands: true },
+  { value: 'four_fingers_up', label: 'Four Fingers Up', description: 'Detect 4 fingers extended (excluding thumb)' },
   { value: 'finger_point', label: 'Finger Pointing', description: 'Point with a specific finger' },
   { value: 'hand_height', label: 'Hand Position', description: 'Detect hand above/below position' },
 ]
@@ -25,6 +28,9 @@ const ACTION_TYPES = [
   { value: 'scroll_down', label: 'Scroll Down' },
   { value: 'play_video', label: 'Play Video' },
   { value: 'pause_video', label: 'Pause Video' },
+  { value: 'close_chatbot', label: 'Close Chatbot' },
+  { value: 'export_pdf', label: 'Export as PNG/PDF' },
+  { value: 'open_settings', label: 'Open Settings' },
   { value: 'open_url', label: 'Open URL' },
 ]
 
@@ -68,6 +74,12 @@ export function AddGestureModal({ isOpen, onClose }: AddGestureModalProps) {
         detectionParams.finger1 = finger1
         detectionParams.finger2 = finger2
         detectionParams.threshold = threshold
+      } else if (gestureType === 'four_finger_pinch') {
+        detectionParams.threshold = threshold
+      } else if (gestureType === 'two_palm_clap') {
+        detectionParams.threshold = threshold
+      } else if (gestureType === 'four_fingers_up') {
+        detectionParams.threshold = 1.1 // Extension ratio threshold
       } else if (gestureType === 'finger_point') {
         detectionParams.fingerTip = fingerTip
         detectionParams.fingerBase = fingerTip - 3 // MCP joint
@@ -211,6 +223,59 @@ export function AddGestureModal({ isOpen, onClose }: AddGestureModalProps) {
                   onChange={(e) => setThreshold(Number(e.target.value))}
                   className="bg-slate-900 border-slate-600 text-white text-sm"
                 />
+              </div>
+            </div>
+          )}
+
+          {gestureType === 'four_finger_pinch' && (
+            <div className="space-y-3">
+              <div className="p-3 bg-purple-500/10 border border-purple-500/50 rounded text-purple-400 text-xs">
+                <p className="font-semibold mb-1">✌️ Two Hands Required</p>
+                <p>Bring both index fingers (landmark 8) and both middle fingers (landmark 12) together from both hands.</p>
+              </div>
+              <div>
+                <Label className="text-white mb-2">Sensitivity (distance threshold)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0.05"
+                  max="0.3"
+                  value={threshold}
+                  onChange={(e) => setThreshold(Number(e.target.value))}
+                  className="bg-slate-900 border-slate-600 text-white text-sm"
+                  placeholder="0.1"
+                />
+              </div>
+            </div>
+          )}
+
+          {gestureType === 'two_palm_clap' && (
+            <div className="space-y-3">
+              <div className="p-3 bg-purple-500/10 border border-purple-500/50 rounded text-purple-400 text-xs">
+                <p className="font-semibold mb-1">👏 Two Hands Required</p>
+                <p>Bring both palms together in a clapping motion. Detection is based on palm center distance.</p>
+              </div>
+              <div>
+                <Label className="text-white mb-2">Sensitivity (distance threshold)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0.1"
+                  max="0.3"
+                  value={threshold}
+                  onChange={(e) => setThreshold(Number(e.target.value))}
+                  className="bg-slate-900 border-slate-600 text-white text-sm"
+                  placeholder="0.15"
+                />
+              </div>
+            </div>
+          )}
+
+          {gestureType === 'four_fingers_up' && (
+            <div className="space-y-3">
+              <div className="p-3 bg-green-500/10 border border-green-500/50 rounded text-green-400 text-xs">
+                <p className="font-semibold mb-1">🖐️ Four Fingers Extended</p>
+                <p>Extend index, middle, ring, and pinky fingers while keeping thumb folded. Uses Euclidean distance between fingertips and wrist.</p>
               </div>
             </div>
           )}

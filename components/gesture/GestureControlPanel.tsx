@@ -52,7 +52,8 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
   const customGestures = useWhiteboardStore((state) => state.customGestures)
   
   // Store custom gesture detection functions
-  const customGestureDetectorsRef = useRef<Map<string, (landmarks: any) => boolean>>(new Map())
+  // Detection functions now accept both single-hand landmarks and all landmarks for two-hand gestures
+  const customGestureDetectorsRef = useRef<Map<string, (landmarks: any, allLandmarks?: any) => boolean>>(new Map())
   const customGestureActionsRef = useRef<Map<string, () => void>>(new Map())
 
   // Custom OK gesture detection based on thumb-index pinch
@@ -502,6 +503,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
           handleOpenChatbotWithVoice,
           setVideoPlayerOpen,
           setVideoPlayerUrl,
+          setChatbotOpen,
           resetViewport,
           viewport,
           window,
@@ -510,11 +512,12 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
         }
 
         // Compile detection function - wrap the code properly
+        // Pass both landmarks (single hand) and allLandmarks (all hands) for two-hand gestures
         const detectionFuncBody = `
           ${gesture.detectionCode};
-          return detect(landmarks);
+          return detect(landmarks, allLandmarks);
         `
-        const detectionFunc = new Function('landmarks', 'context', `
+        const detectionFunc = new Function('landmarks', 'allLandmarks', 'context', `
           const { Math } = context;
           ${detectionFuncBody}
         `)
@@ -529,17 +532,18 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
             handleZoomIn, handleZoomOut, handleScrollUp, handleScrollDown, 
             handlePlayVideo, handlePauseVideo, handleShowVideoPlayer, handleHideVideoPlayer,
             handleOpenYoutube, handlePasteLink, handleOpenChatbotWithVoice,
-            setVideoPlayerOpen, setVideoPlayerUrl, resetViewport, viewport, window, navigator, Math
+            setVideoPlayerOpen, setVideoPlayerUrl, resetViewport, viewport, window, navigator, Math,
+            setChatbotOpen
           } = context;
           ${actionFuncBody}
         `)
 
-        // Store compiled functions
+        // Store compiled functions - now accepts allLandmarks for two-hand gestures
         customGestureDetectorsRef.current.set(
           gesture.id,
-          (landmarks: any) => {
+          (landmarks: any, allLandmarks?: any) => {
             try {
-              return detectionFunc(landmarks, context)
+              return detectionFunc(landmarks, allLandmarks, context)
             } catch (err) {
               console.error(`Detection error for ${gesture.name}:`, err)
               return false
@@ -560,7 +564,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
         console.error(`Error compiling gesture ${gesture.name}:`, error)
       }
     })
-  }, [customGestures, handleZoomIn, handleZoomOut, handleScrollUp, handleScrollDown, handlePlayVideo, handlePauseVideo, handleShowVideoPlayer, handleHideVideoPlayer, handleOpenYoutube, handlePasteLink, handleOpenChatbotWithVoice, setVideoPlayerOpen, setVideoPlayerUrl, resetViewport, viewport])
+  }, [customGestures, handleZoomIn, handleZoomOut, handleScrollUp, handleScrollDown, handlePlayVideo, handlePauseVideo, handleShowVideoPlayer, handleHideVideoPlayer, handleOpenYoutube, handlePasteLink, handleOpenChatbotWithVoice, setVideoPlayerOpen, setVideoPlayerUrl, setChatbotOpen, resetViewport, viewport])
 
   // Trigger action based on detected gesture with debouncing
   const triggerGestureAction = useCallback((gesture: string) => {
@@ -718,9 +722,11 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
         let customGestureDetected = false
         if (results.landmarks && results.landmarks.length > 0) {
           // Check all custom gestures first
+          // Pass both single-hand landmarks and all landmarks for two-hand gesture support
           for (const [gestureId, detectFunc] of customGestureDetectorsRef.current) {
             try {
-              if (detectFunc(results.landmarks[0])) {
+              // Pass results.landmarks[0] as primary hand, and results.landmarks as all hands
+              if (detectFunc(results.landmarks[0], results.landmarks)) {
                 const gesture = customGestures.find(g => g.id === gestureId)
                 if (gesture) {
                   setGestureDetected(`Custom: ${gesture.name}`)
