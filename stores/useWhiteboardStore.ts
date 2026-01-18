@@ -48,6 +48,7 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
   videoPlayerUrl: null,
   isChatbotOpen: false,
   shouldActivateVoice: false,
+  videoPlayerTimestamp: null,
   lassoMaskContext: null,
 
   // Tool actions
@@ -64,6 +65,7 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
   // Chatbot actions
   setChatbotOpen: (isOpen: boolean) => set({ isChatbotOpen: isOpen }),
   setShouldActivateVoice: (shouldActivate: boolean) => set({ shouldActivateVoice: shouldActivate }),
+  setVideoPlayerTimestamp: (timestamp: number | null) => set({ videoPlayerTimestamp: timestamp }),
 
   // Element actions
   addElement: (element: WhiteboardElement) =>

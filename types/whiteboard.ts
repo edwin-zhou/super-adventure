@@ -188,6 +188,7 @@ export interface WhiteboardState {
   isVideoPlayerOpen: boolean
   videoPlayerAction: 'play' | 'pause' | null
   videoPlayerUrl: string | null
+  videoPlayerTimestamp: number | null
   
   // Chatbot
   isChatbotOpen: boolean
@@ -201,6 +202,7 @@ export interface WhiteboardState {
   setVideoPlayerUrl: (url: string | null) => void
   setChatbotOpen: (isOpen: boolean) => void
   setShouldActivateVoice: (shouldActivate: boolean) => void
+  setVideoPlayerTimestamp: (timestamp: number | null) => void
   
   // Element actions
   addElement: (element: WhiteboardElement) => void

@@ -26,6 +26,8 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
   const setVideoPlayerAction = useWhiteboardStore((state) => state.setVideoPlayerAction)
   const storeVideoUrl = useWhiteboardStore((state) => state.videoPlayerUrl)
   const setStoreVideoUrl = useWhiteboardStore((state) => state.setVideoPlayerUrl)
+  const videoPlayerTimestamp = useWhiteboardStore((state) => state.videoPlayerTimestamp)
+  const setVideoPlayerTimestamp = useWhiteboardStore((state) => state.setVideoPlayerTimestamp)
   
   // Derive the actual video URL from store or local state
   const videoUrl = storeVideoUrl || localVideoUrl
@@ -74,6 +76,40 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
     // Reset action after processing
     setVideoPlayerAction(null)
   }, [videoPlayerAction, setVideoPlayerAction])
+
+  // Handle video timestamp seeking
+  useEffect(() => {
+    if (videoPlayerTimestamp === null) return
+    
+    if (videoRef.current) {
+      // For regular video elements, set currentTime directly
+      videoRef.current.currentTime = videoPlayerTimestamp
+    }
+    
+    // For iframe (YouTube/Vimeo), send postMessage
+    if (iframeRef.current) {
+      // YouTube iframe API - seek to time
+      iframeRef.current.contentWindow?.postMessage(
+        JSON.stringify({
+          event: 'command',
+          func: 'seekTo',
+          args: [videoPlayerTimestamp, true]
+        }),
+        '*'
+      )
+      // Vimeo iframe API - seek to time
+      iframeRef.current.contentWindow?.postMessage(
+        JSON.stringify({
+          method: 'setCurrentTime',
+          value: videoPlayerTimestamp
+        }),
+        '*'
+      )
+    }
+    
+    // Reset timestamp after processing
+    setVideoPlayerTimestamp(null)
+  }, [videoPlayerTimestamp, setVideoPlayerTimestamp])
   
   // Convert YouTube URL to embed format
   const getEmbedUrl = (url: string) => {
