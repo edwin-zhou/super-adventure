@@ -573,6 +573,11 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
   }, [isCameraOn, triggerGestureAction, detectOKGesture, detectZeroGesture, detectHorizontalSwipe, detectPalmSwipe, detectSnapGesture])
 
   const startCamera = useCallback(async () => {
+    // Don't start if already running
+    if (isCameraOn && streamRef.current) {
+      return
+    }
+    
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { width: 640, height: 480, facingMode: 'user' } 
@@ -595,7 +600,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
       console.error('Error accessing camera:', error)
       alert('Unable to access camera. Please check permissions.')
     }
-  }, [detectGestures])
+  }, [detectGestures, isCameraOn])
 
   const stopCamera = useCallback(() => {
     // Stop animation frame
@@ -621,10 +626,19 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
   }, [])
 
   const toggleCamera = () => {
-    if (isCameraOn) {
-      stopCamera()
+    // When gesture control is enabled, camera should always be on
+    // Only allow toggling if gesture control is disabled
+    if (!isEnabled) {
+      if (isCameraOn) {
+        stopCamera()
+      } else {
+        startCamera()
+      }
     } else {
-      startCamera()
+      // If gesture control is enabled, ensure camera stays on
+      if (!isCameraOn) {
+        startCamera()
+      }
     }
   }
 
@@ -642,6 +656,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
   // Auto-start camera when gesture control is enabled
   useEffect(() => {
     if (isEnabled) {
+      // Ensure camera is always on when gesture control is enabled
       startCamera()
     } else {
       stopCamera()
@@ -743,7 +758,9 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
             size="sm"
             variant={isCameraOn ? "destructive" : "default"}
             onClick={toggleCamera}
+            disabled={isEnabled}
             className="flex items-center gap-2"
+            title={isEnabled ? "Camera is always on when gesture control is enabled" : undefined}
           >
             {isCameraOn ? (
               <>
