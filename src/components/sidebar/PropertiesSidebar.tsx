@@ -3,6 +3,9 @@ import { Slider } from '@/components/ui/slider'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
+import { Button } from '@/components/ui/button'
+import { Bold, Italic, Type } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 const PRESET_COLORS = [
   '#ef4444', // red
@@ -36,6 +39,15 @@ const STICKY_COLORS = [
   '#fed7aa', // orange
 ]
 
+const FONT_OPTIONS = [
+  { name: 'Arial', value: 'Arial, sans-serif' },
+  { name: 'Times New Roman', value: '"Times New Roman", serif' },
+  { name: 'Courier', value: '"Courier New", monospace' },
+  { name: 'Georgia', value: 'Georgia, serif' },
+  { name: 'Verdana', value: 'Verdana, sans-serif' },
+  { name: 'Comic Sans', value: '"Comic Sans MS", cursive' },
+]
+
 export function PropertiesSidebar() {
   const {
     selection,
@@ -66,6 +78,14 @@ export function PropertiesSidebar() {
   const currentFontSize = hasSelection
     ? getCommonProperty('fontSize')
     : defaultStyles.fontSize
+  const currentFontFamily = hasSelection
+    ? getCommonProperty('fontFamily')
+    : (getComputedStyle(document.documentElement).getPropertyValue('--default-font').trim() || defaultStyles.fontFamily)
+  const currentFontStyle = hasSelection
+    ? getCommonProperty('fontStyle')
+    : defaultStyles.fontStyle
+
+  const hasTextSelection = hasSelection && selectedElements.some((el) => el.type === 'text')
 
   const handleStyleChange = (style: any) => {
     if (hasSelection) {
@@ -175,6 +195,78 @@ export function PropertiesSidebar() {
             className="w-full"
           />
         </div>
+
+        {/* Font Family & Style - show for text elements or when no selection */}
+        {(hasTextSelection || !hasSelection) && (
+          <>
+            <Separator className="bg-slate-600" />
+            
+            {/* Font Family */}
+            <div className="space-y-2">
+              <Label className="text-xs text-slate-300">Font Family</Label>
+              <select
+                value={currentFontFamily || defaultStyles.fontFamily}
+                onChange={(e) => handleStyleChange({ fontFamily: e.target.value })}
+                className="w-full px-2 py-1.5 bg-slate-900 border border-slate-600 rounded text-white text-sm"
+              >
+                {FONT_OPTIONS.map((font) => (
+                  <option key={font.value} value={font.value} style={{ fontFamily: font.value }}>
+                    {font.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Font Style */}
+            <div className="space-y-2">
+              <Label className="text-xs text-slate-300">Font Style</Label>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    'flex-1',
+                    (currentFontStyle === 'normal' || !currentFontStyle) 
+                      ? 'bg-slate-600 border-slate-500' 
+                      : 'bg-slate-800 border-slate-600'
+                  )}
+                  onClick={() => handleStyleChange({ fontStyle: 'normal' })}
+                >
+                  <Type size={14} className="mr-1" />
+                  Normal
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    'flex-1',
+                    currentFontStyle === 'bold' 
+                      ? 'bg-slate-600 border-slate-500' 
+                      : 'bg-slate-800 border-slate-600'
+                  )}
+                  onClick={() => handleStyleChange({ fontStyle: 'bold' })}
+                >
+                  <Bold size={14} className="mr-1" />
+                  Bold
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    'flex-1',
+                    currentFontStyle === 'italic' 
+                      ? 'bg-slate-600 border-slate-500' 
+                      : 'bg-slate-800 border-slate-600'
+                  )}
+                  onClick={() => handleStyleChange({ fontStyle: 'italic' })}
+                >
+                  <Italic size={14} className="mr-1" />
+                  Italic
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Sticky Note Colors */}
         {(hasSelection

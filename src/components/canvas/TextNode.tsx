@@ -82,6 +82,8 @@ export function TextNode({ element, isSelected }: TextNodeProps) {
     textarea.style.resize = 'none'
     textarea.style.lineHeight = String(textNode.lineHeight())
     textarea.style.fontFamily = element.fontFamily || 'Arial'
+    textarea.style.fontWeight = element.fontStyle === 'bold' ? 'bold' : 'normal'
+    textarea.style.fontStyle = element.fontStyle === 'italic' ? 'italic' : 'normal'
     textarea.style.color = element.fill
     textarea.style.zIndex = '1000'
     textarea.style.borderRadius = '4px'

@@ -114,6 +114,11 @@ export function WhiteboardCanvas({ isVideoPlayerOpen = false }: WhiteboardCanvas
   // Handle click-to-create for text and sticky notes
   const handleClickToCreate = (point: { x: number; y: number }) => {
     if (currentTool === 'text') {
+      // Get the current font from CSS variable or use default
+      const computedFont = getComputedStyle(document.documentElement)
+        .getPropertyValue('--default-font')
+        .trim() || defaultStyles.fontFamily
+      
       const textElement: TextElement = {
         id: `text-${Date.now()}-${Math.random()}`,
         type: 'text',
@@ -121,7 +126,8 @@ export function WhiteboardCanvas({ isVideoPlayerOpen = false }: WhiteboardCanvas
         y: point.y,
         text: 'Double-click to edit',
         fontSize: defaultStyles.fontSize,
-        fontFamily: 'Arial',
+        fontFamily: computedFont,
+        fontStyle: defaultStyles.fontStyle,
         fill: defaultStyles.stroke,
         width: 200,
         align: 'left',
@@ -234,20 +240,26 @@ export function WhiteboardCanvas({ isVideoPlayerOpen = false }: WhiteboardCanvas
     return () => observer.disconnect()
   }, [])
 
-  // Clear selection path when changing tools
+  // Clear drawing selection when changing away from select tool, but keep completed selection
   useEffect(() => {
     if (currentTool !== 'select') {
-      setCompletedSelectionPath([])
       setSelectionPath([])
       setIsDrawingSelection(false)
+      // Don't clear completedSelectionPath - keep it visible
     }
   }, [currentTool])
 
   // Handle delete key for selection area
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if user is typing in an input field
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return
+      }
+      
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selection.selectedIds.length > 0 && completedSelectionPath.length > 0) {
+        if (selection.selectedIds.length > 0) {
           // Delete selected elements
           deleteSelectedElements()
           // Clear the selection path
@@ -263,7 +275,7 @@ export function WhiteboardCanvas({ isVideoPlayerOpen = false }: WhiteboardCanvas
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selection.selectedIds, completedSelectionPath, deleteSelectedElements, clearSelection])
+  }, [selection.selectedIds, deleteSelectedElements, clearSelection])
 
   // Mouse/pointer event handlers
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -284,13 +296,17 @@ export function WhiteboardCanvas({ isVideoPlayerOpen = false }: WhiteboardCanvas
     // Check if clicking on page or stage background (not on an element)
     const isBackground = e.target === stage || e.target.attrs.id?.startsWith('page-')
     
-    // If select tool and there's a completed selection, check if clicking inside it to drag
-    if (currentTool === 'select' && completedSelectionPath.length >= 6 && selection.selectedIds.length > 0) {
+    // If there's a completed selection, check if clicking inside it to drag (regardless of current tool)
+    if (completedSelectionPath.length >= 6 && selection.selectedIds.length > 0) {
       if (isPointInPolygon(transformedPoint, completedSelectionPath)) {
         // Start dragging selected elements
         setIsDraggingSelected(true)
         setDragStartPos(transformedPoint)
         return
+      } else if (isBackground) {
+        // Clicking outside selection area - clear it and proceed with current tool
+        clearSelection()
+        setCompletedSelectionPath([])
       }
     }
     
@@ -714,8 +730,8 @@ export function WhiteboardCanvas({ isVideoPlayerOpen = false }: WhiteboardCanvas
             />
           )}
           
-          {/* Render completed selection path (stays visible) */}
-          {!isDrawingSelection && completedSelectionPath.length >= 6 && currentTool === 'select' && selection.selectedIds.length > 0 && (
+          {/* Render completed selection path (stays visible even when tool changes) */}
+          {!isDrawingSelection && completedSelectionPath.length >= 6 && selection.selectedIds.length > 0 && (
             <Line
               points={completedSelectionPath}
               stroke="#3b82f6"

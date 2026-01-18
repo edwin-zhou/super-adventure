@@ -18,6 +18,8 @@ const initialDefaultStyles = {
   strokeWidth: 2,
   fontSize: 16,
   stickyColor: '#fef08a',
+  fontFamily: 'Arial, sans-serif',
+  fontStyle: 'normal' as 'normal' | 'bold' | 'italic',
 }
 
 export const useWhiteboardStore = create<WhiteboardState>((set) => ({

@@ -166,6 +166,8 @@ export interface WhiteboardState {
     strokeWidth: number
     fontSize: number
     stickyColor: string
+    fontFamily: string
+    fontStyle: 'normal' | 'bold' | 'italic'
   }
   
   // Actions
