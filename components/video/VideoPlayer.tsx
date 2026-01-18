@@ -81,34 +81,101 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
   useEffect(() => {
     if (videoPlayerTimestamp === null) return
     
-    if (videoRef.current) {
-      // For regular video elements, set currentTime directly
-      videoRef.current.currentTime = videoPlayerTimestamp
+    const seekToTimestamp = () => {
+      if (videoRef.current) {
+        // For regular video elements, set currentTime directly
+        // Only seek if video has loaded metadata
+        if (videoRef.current.readyState >= 1) {
+          videoRef.current.currentTime = videoPlayerTimestamp
+          return true
+        }
+        return false
+      }
+      
+      // For iframe (YouTube/Vimeo), send postMessage
+      if (iframeRef.current) {
+        // YouTube iframe API - seek to time
+        iframeRef.current.contentWindow?.postMessage(
+          JSON.stringify({
+            event: 'command',
+            func: 'seekTo',
+            args: [videoPlayerTimestamp, true]
+          }),
+          '*'
+        )
+        // Vimeo iframe API - seek to time
+        iframeRef.current.contentWindow?.postMessage(
+          JSON.stringify({
+            method: 'setCurrentTime',
+            value: videoPlayerTimestamp
+          }),
+          '*'
+        )
+        return true
+      }
+      
+      return false
     }
     
-    // For iframe (YouTube/Vimeo), send postMessage
-    if (iframeRef.current) {
-      // YouTube iframe API - seek to time
-      iframeRef.current.contentWindow?.postMessage(
-        JSON.stringify({
-          event: 'command',
-          func: 'seekTo',
-          args: [videoPlayerTimestamp, true]
-        }),
-        '*'
-      )
-      // Vimeo iframe API - seek to time
-      iframeRef.current.contentWindow?.postMessage(
-        JSON.stringify({
-          method: 'setCurrentTime',
-          value: videoPlayerTimestamp
-        }),
-        '*'
-      )
-    }
+    // Try to seek immediately
+    const success = seekToTimestamp()
     
-    // Reset timestamp after processing
-    setVideoPlayerTimestamp(null)
+    // If it's a regular video element and not ready, wait and retry
+    if (!success && videoRef.current) {
+      const handleLoadedMetadata = () => {
+        if (videoRef.current) {
+          videoRef.current.currentTime = videoPlayerTimestamp
+          videoRef.current.removeEventListener('loadedmetadata', handleLoadedMetadata)
+        }
+        setVideoPlayerTimestamp(null)
+      }
+      
+      videoRef.current.addEventListener('loadedmetadata', handleLoadedMetadata)
+      // Fallback: clear after timeout even if not ready
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.removeEventListener('loadedmetadata', handleLoadedMetadata)
+        }
+        setVideoPlayerTimestamp(null)
+      }, 5000)
+    } else if (iframeRef.current) {
+      // For iframes, retry seeking multiple times to ensure it works
+      // YouTube/Vimeo iframes may not be ready immediately
+      let retryCount = 0
+      const maxRetries = 5
+      
+      const retrySeek = () => {
+        if (retryCount < maxRetries && iframeRef.current) {
+          // Retry the seek command
+          iframeRef.current.contentWindow?.postMessage(
+            JSON.stringify({
+              event: 'command',
+              func: 'seekTo',
+              args: [videoPlayerTimestamp, true]
+            }),
+            '*'
+          )
+          iframeRef.current.contentWindow?.postMessage(
+            JSON.stringify({
+              method: 'setCurrentTime',
+              value: videoPlayerTimestamp
+            }),
+            '*'
+          )
+          retryCount++
+          setTimeout(retrySeek, 300)
+        } else {
+          // Clear timestamp after all retries
+          setVideoPlayerTimestamp(null)
+        }
+      }
+      
+      // Start retrying after initial attempt
+      setTimeout(retrySeek, 300)
+    } else if (success) {
+      // For successful regular video seeks, clear immediately
+      setVideoPlayerTimestamp(null)
+    }
   }, [videoPlayerTimestamp, setVideoPlayerTimestamp])
   
   // Convert YouTube URL to embed format

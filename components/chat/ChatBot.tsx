@@ -180,10 +180,48 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
 
       // Handle video actions if any
       if (result.videoActions && result.videoActions.length > 0) {
-        const { setVideoPlayerTimestamp } = useWhiteboardStore.getState()
+        const { 
+          setVideoPlayerTimestamp, 
+          setVideoPlayerUrl, 
+          setVideoPlayerOpen,
+          setVideoPlayerAction,
+          isVideoPlayerOpen 
+        } = useWhiteboardStore.getState()
         for (const action of result.videoActions) {
           if (action.type === 'seek_to_timestamp' && action.timestamp !== undefined) {
-            setVideoPlayerTimestamp(action.timestamp)
+            // Open video player if not already open
+            if (!isVideoPlayerOpen) {
+              setVideoPlayerOpen(true)
+            }
+            // If video URL is provided, load it
+            if (action.videoUrl) {
+              setVideoPlayerUrl(action.videoUrl)
+              const timestamp = action.timestamp!
+              
+              // Wait for video/iframe to load and initialize
+              // YouTube/Vimeo iframes need more time to be ready for API commands
+              setTimeout(() => {
+                // Set timestamp first
+                setVideoPlayerTimestamp(timestamp)
+                // Retry setting timestamp after a delay (for iframes that need more time)
+                setTimeout(() => {
+                  setVideoPlayerTimestamp(timestamp)
+                }, 500)
+                // Then play after timestamp is set (allows seek to complete)
+                setTimeout(() => {
+                  setVideoPlayerAction('play')
+                  // Set timestamp one more time after play starts (ensures seek works)
+                  setTimeout(() => {
+                    setVideoPlayerTimestamp(timestamp)
+                  }, 300)
+                }, 800)
+              }, 1000)
+            } else {
+              // If no video URL, set timestamp immediately (video already loaded)
+              setVideoPlayerTimestamp(action.timestamp)
+              // Start playing the video
+              setVideoPlayerAction('play')
+            }
           }
         }
       }
@@ -371,10 +409,48 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
 
       // Handle video actions if any
       if (result.videoActions && result.videoActions.length > 0) {
-        const { setVideoPlayerTimestamp } = useWhiteboardStore.getState()
+        const { 
+          setVideoPlayerTimestamp, 
+          setVideoPlayerUrl, 
+          setVideoPlayerOpen,
+          setVideoPlayerAction,
+          isVideoPlayerOpen 
+        } = useWhiteboardStore.getState()
         for (const action of result.videoActions) {
           if (action.type === 'seek_to_timestamp' && action.timestamp !== undefined) {
-            setVideoPlayerTimestamp(action.timestamp)
+            // Open video player if not already open
+            if (!isVideoPlayerOpen) {
+              setVideoPlayerOpen(true)
+            }
+            // If video URL is provided, load it
+            if (action.videoUrl) {
+              setVideoPlayerUrl(action.videoUrl)
+              const timestamp = action.timestamp!
+              
+              // Wait for video/iframe to load and initialize
+              // YouTube/Vimeo iframes need more time to be ready for API commands
+              setTimeout(() => {
+                // Set timestamp first
+                setVideoPlayerTimestamp(timestamp)
+                // Retry setting timestamp after a delay (for iframes that need more time)
+                setTimeout(() => {
+                  setVideoPlayerTimestamp(timestamp)
+                }, 500)
+                // Then play after timestamp is set (allows seek to complete)
+                setTimeout(() => {
+                  setVideoPlayerAction('play')
+                  // Set timestamp one more time after play starts (ensures seek works)
+                  setTimeout(() => {
+                    setVideoPlayerTimestamp(timestamp)
+                  }, 300)
+                }, 800)
+              }, 1000)
+            } else {
+              // If no video URL, set timestamp immediately (video already loaded)
+              setVideoPlayerTimestamp(action.timestamp)
+              // Start playing the video
+              setVideoPlayerAction('play')
+            }
           }
         }
       }
