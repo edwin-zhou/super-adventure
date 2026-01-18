@@ -45,6 +45,8 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
   const setVideoPlayerOpen = useWhiteboardStore((state) => state.setVideoPlayerOpen)
   const setVideoPlayerAction = useWhiteboardStore((state) => state.setVideoPlayerAction)
   const setVideoPlayerUrl = useWhiteboardStore((state) => state.setVideoPlayerUrl)
+  const setChatbotOpen = useWhiteboardStore((state) => state.setChatbotOpen)
+  const setShouldActivateVoice = useWhiteboardStore((state) => state.setShouldActivateVoice)
 
   // Custom OK gesture detection based on thumb-index pinch
   const detectOKGesture = useCallback((landmarks: any) => {
@@ -465,6 +467,12 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
     }
   }, [setVideoPlayerOpen, setVideoPlayerUrl])
 
+  const handleOpenChatbotWithVoice = useCallback(() => {
+    // Open chatbot and activate voice mode
+    setChatbotOpen(true)
+    setShouldActivateVoice(true)
+  }, [setChatbotOpen, setShouldActivateVoice])
+
   // Trigger action based on detected gesture with debouncing
   const triggerGestureAction = useCallback((gesture: string) => {
     const now = Date.now()
@@ -503,7 +511,9 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
     
     // Map gestures to actions
     switch (gesture) {
-      case 'Zero_Gesture':  // ⭕ Custom Zero gesture (O-shape, not fist) → Zoom in by absolute 30% (1.5s cooldown, smooth animation)
+      case 'Zero_Gesture':  // ⭕ Custom Zero gesture (O-shape, not fist) → Open chatbot with voice mode (1.5s cooldown)
+        handleOpenChatbotWithVoice()
+        break
       case 'OK_Gesture':  // 👌 Custom OK gesture (thumb-index pinch) → Zoom in by absolute 30% (1.5s cooldown, smooth animation)
       case 'Thumb_Up':
         handleZoomIn()
@@ -542,7 +552,7 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
         onClose()
         break
     }
-  }, [handleZoomIn, handlePasteLink, handleScrollUp, handleScrollDown, handlePlayVideo, handlePauseVideo, handleHideVideoPlayer, handleShowVideoPlayer, handleOpenYoutube, onClose])
+  }, [handleZoomIn, handlePasteLink, handleScrollUp, handleScrollDown, handlePlayVideo, handlePauseVideo, handleHideVideoPlayer, handleShowVideoPlayer, handleOpenYoutube, handleOpenChatbotWithVoice, onClose])
 
   // Initialize MediaPipe Gesture Recognizer
   const initializeGestureRecognizer = useCallback(async () => {
@@ -930,6 +940,14 @@ export function GestureControlPanel({ isEnabled, onClose }: GestureControlPanelP
               className="w-full justify-start text-left bg-slate-900/50 border-slate-700 hover:bg-slate-800 text-white"
             >
               <span className="text-xs">✌️ Paste Link: Victory Gesture</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleOpenChatbotWithVoice}
+              className="w-full justify-start text-left bg-slate-900/50 border-slate-700 hover:bg-slate-800 text-white"
+            >
+              <span className="text-xs">⭕ Open Chatbot: Zero Gesture</span>
             </Button>
             <Button
               variant="outline"

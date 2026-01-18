@@ -115,6 +115,10 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
   
   // Get lasso mask context from the whiteboard store
   const lassoMaskContext = useWhiteboardStore((state) => state.lassoMaskContext)
+  const isChatbotOpen = useWhiteboardStore((state) => state.isChatbotOpen)
+  const shouldActivateVoice = useWhiteboardStore((state) => state.shouldActivateVoice)
+  const setChatbotOpen = useWhiteboardStore((state) => state.setChatbotOpen)
+  const setShouldActivateVoice = useWhiteboardStore((state) => state.setShouldActivateVoice)
 
   // Voice agent callback - wraps handleSend to return response text
   const handleVoiceSubmit = useCallback(async (text: string): Promise<string> => {
@@ -279,6 +283,21 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
     onSubmit: handleVoiceSubmit,
     onError: (error) => console.warn('[Voice]', error),
   })
+
+  // Handle chatbot open/voice activation from store
+  useEffect(() => {
+    if (isChatbotOpen && isMinimized) {
+      setIsMinimized(false)
+      setChatbotOpen(false) // Reset flag
+    }
+  }, [isChatbotOpen, isMinimized, setChatbotOpen])
+
+  useEffect(() => {
+    if (shouldActivateVoice && !isVoiceMode && !isMinimized) {
+      startSession()
+      setShouldActivateVoice(false) // Reset flag
+    }
+  }, [shouldActivateVoice, isVoiceMode, isMinimized, startSession, setShouldActivateVoice])
 
   // Add a video to pending list
   const addPendingVideo = useCallback(async (url: string) => {

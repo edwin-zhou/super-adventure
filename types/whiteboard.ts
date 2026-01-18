@@ -191,12 +191,18 @@ export interface WhiteboardState {
   videoPlayerUrl: string | null
   videoPlayerTimestamp: number | null
   
+  // Chatbot
+  isChatbotOpen: boolean
+  shouldActivateVoice: boolean
+  
   // Actions
   setTool: (tool: ToolType) => void
   setGestureControlEnabled: (enabled: boolean) => void
   setVideoPlayerOpen: (isOpen: boolean) => void
   setVideoPlayerAction: (action: 'play' | 'pause' | null) => void
   setVideoPlayerUrl: (url: string | null) => void
+  setChatbotOpen: (isOpen: boolean) => void
+  setShouldActivateVoice: (shouldActivate: boolean) => void
   setVideoPlayerTimestamp: (timestamp: number | null) => void
   
   // Element actions
