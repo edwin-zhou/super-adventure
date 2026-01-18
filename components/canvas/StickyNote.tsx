@@ -9,13 +9,17 @@ import type { StickyNoteElement } from '@/types/whiteboard'
 interface StickyNoteProps {
   element: StickyNoteElement
   isSelected: boolean
+  currentTool?: string
 }
 
-export function StickyNote({ element, isSelected }: StickyNoteProps) {
+export function StickyNote({ element, isSelected, currentTool }: StickyNoteProps) {
   const groupRef = useRef<Konva.Group>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
   const { updateElement, selectElement } = useWhiteboardStore()
   const [isEditing, setIsEditing] = useState(false)
+  
+  // Disable dragging when lasso tool is active or editing
+  const isDraggable = currentTool !== 'select' && element.draggable && !isEditing
 
   useEffect(() => {
     if (isSelected && transformerRef.current && groupRef.current && !isEditing) {
@@ -117,7 +121,8 @@ export function StickyNote({ element, isSelected }: StickyNoteProps) {
         x={element.x}
         y={element.y}
         rotation={element.rotation}
-        draggable={element.draggable && !isEditing}
+        draggable={isDraggable}
+        listening={currentTool !== 'select'}
         onClick={() => selectElement(element.id)}
         onTap={() => selectElement(element.id)}
         onDblClick={handleDoubleClick}

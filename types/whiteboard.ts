@@ -139,6 +139,14 @@ export interface HistoryState {
   future: WhiteboardElement[][]
 }
 
+// Lasso mask context for image editing
+export interface LassoMaskContext {
+  selectionPath: number[] // The normalized hull path
+  targetImageId: string | null // ID of the image element being masked
+  targetImageElement: ImageElement | null // The actual image element
+  relativeMaskPath: number[] // Path in image-relative coordinates
+}
+
 // Store state
 export interface WhiteboardState {
   // Elements
@@ -158,6 +166,9 @@ export interface WhiteboardState {
   
   // History
   history: HistoryState
+  
+  // Lasso mask context
+  lassoMaskContext: LassoMaskContext | null
   
   // Element styling (for new elements)
   defaultStyles: {
@@ -210,6 +221,10 @@ export interface WhiteboardState {
   // History actions
   undo: () => void
   redo: () => void
+  
+  // Lasso mask actions
+  setLassoMaskContext: (context: LassoMaskContext | null) => void
+  clearLassoMaskContext: () => void
   
   // Clear all
   clearCanvas: () => void

@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Send, Bot, Minimize2, X, Plus, Upload, Link, Youtube, Loader2, Download, RotateCcw, AudioLines, Square } from 'lucide-react'
 import { useVoiceAgent } from '@/hooks/useVoiceAgent'
+import { useWhiteboardStore } from '@/stores/useWhiteboardStore'
 import ReactMarkdown from 'react-markdown'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
@@ -11,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
+import { generateMaskFromPath } from '@/lib/mask-utils'
 import {
   extractYoutubeUrls,
   containsYoutubeUrl,
@@ -110,6 +112,9 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const noteStyleInputRef = useRef<HTMLInputElement>(null)
+  
+  // Get lasso mask context from the whiteboard store
+  const lassoMaskContext = useWhiteboardStore((state) => state.lassoMaskContext)
 
   // Voice agent callback - wraps handleSend to return response text
   const handleVoiceSubmit = useCallback(async (text: string): Promise<string> => {
@@ -142,7 +147,28 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
         addVideosToContext(allYoutubeUrls)
       }
       
-      const result = await invokeAgent(text)
+      // Prepare mask context if available
+      let maskContext = null
+      if (lassoMaskContext?.targetImageId && lassoMaskContext?.relativeMaskPath) {
+        try {
+          // Generate mask from the relative path
+          const maskBase64 = generateMaskFromPath(
+            lassoMaskContext.relativeMaskPath,
+            1024, // Default image width
+            1536  // Default image height
+          )
+          
+          maskContext = {
+            imageId: lassoMaskContext.targetImageId,
+            maskBase64,
+            targetImageId: lassoMaskContext.targetImageId,
+          }
+        } catch (error) {
+          console.error('Failed to generate mask:', error)
+        }
+      }
+      
+      const result = await invokeAgent(text, undefined, maskContext)
 
       if (result.whiteboardActions && result.whiteboardActions.length > 0 && onAddImageToPage) {
         for (const action of result.whiteboardActions) {
@@ -642,6 +668,31 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
         </div>
       )}
 
+      {/* Lasso selection indicator - more minimal */}
+      {lassoMaskContext && (
+        <div className="px-3 py-2 bg-blue-500/10 border-b border-blue-500/20">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-blue-400">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                <path d="M2 17l10 5 10-5"/>
+                <path d="M2 12l10 5 10-5"/>
+              </svg>
+              <span>Selected region in context</span>
+            </div>
+            <button
+              onClick={() => {
+                const { clearLassoMaskContext } = useWhiteboardStore.getState()
+                clearLassoMaskContext()
+              }}
+              className="text-xs text-blue-400/60 hover:text-blue-400"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Pending videos indicator */}
       {pendingVideos.length > 0 && (
         <div className="px-3 py-2 bg-slate-900/80 border-b border-slate-700">
@@ -965,10 +1016,12 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
               isVoiceMode
                 ? (isSpeaking ? 'Speaking...' : isAgentTurn ? 'Processing...' : 'Listening...')
                 : isGenerating 
-                  ? 'Generating...' 
-                  : pendingVideos.length > 0 
-                    ? `Ask about ${pendingVideos.length === 1 ? 'this video' : `these ${pendingVideos.length} videos`}...` 
-                    : 'Ask anything or paste YouTube URLs...'
+                  ? 'Generating...'
+                  : lassoMaskContext
+                    ? 'Ask about the selected region...'
+                    : pendingVideos.length > 0 
+                      ? `Ask about ${pendingVideos.length === 1 ? 'this video' : `these ${pendingVideos.length} videos`}...` 
+                      : 'Ask anything or paste YouTube URLs...'
             }
             className="flex-1 bg-slate-900 border-slate-600 text-white placeholder:text-slate-500"
             disabled={isGenerating || isVoiceMode}

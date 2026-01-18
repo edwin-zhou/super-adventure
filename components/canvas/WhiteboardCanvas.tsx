@@ -12,9 +12,10 @@ import { TextNode } from './TextNode'
 import { StickyNote } from './StickyNote'
 import { ImageNode } from './ImageNode'
 import type { WhiteboardElement, TextElement, StickyNoteElement, ImageElement } from '@/types/whiteboard'
+import { normalizeToSingleHull, pathOverlapsImage, transformPathToImageCoordinates } from '@/lib/mask-utils'
 
-const PAGE_WIDTH = 1200
-const PAGE_HEIGHT = 1600
+const PAGE_WIDTH = 1024
+const PAGE_HEIGHT = 1536
 const PAGE_MARGIN = 50
 
 interface WhiteboardCanvasProps {
@@ -37,6 +38,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
   const [isDraggingSelected, setIsDraggingSelected] = useState(false)
   const [dragStartPos, setDragStartPos] = useState<{ x: number; y: number } | null>(null)
   const [dimensions, setDimensions] = useState({ width: 1920, height: 1080 })
+  const [completionPosition, setCompletionPosition] = useState<{ x: number; y: number } | null>(null)
   
   const {
     elements,
@@ -54,6 +56,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
     finishDrawing,
     addElement,
     updateElement,
+    setLassoMaskContext,
+    clearLassoMaskContext,
   } = useWhiteboardStore()
 
   // Set dimensions on client-side mount (SSR-safe)
@@ -333,6 +337,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
         // Clear selection and path
         clearSelection()
         setCompletedSelectionPath([])
+        clearLassoMaskContext()
+        setCompletionPosition(null)
       }
     }
 
@@ -453,18 +459,64 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       
       // Find all elements inside the selection path
       if (selectionPath.length >= 6) {
+        // Capture mouse position at completion
+        const stage = stageRef.current
+        if (stage) {
+          const point = stage.getPointerPosition()
+          if (point) {
+            setCompletionPosition(point)
+          }
+        }
+        
+        // Normalize the path to a single hull
+        const normalizedPath = normalizeToSingleHull(selectionPath)
+        
+        // Display the simplified hull shape
+        setCompletedSelectionPath(normalizedPath)
+        
         // Clear previous selection
         clearSelection()
         
         // Select elements inside the lasso
         elements.forEach((element) => {
-          if (isElementInSelection(element, selectionPath)) {
+          if (isElementInSelection(element, normalizedPath)) {
             selectElement(element.id, true) // Multi-select
           }
         })
         
-        // Keep the path visible
-        setCompletedSelectionPath(selectionPath)
+        // Check if the selection overlaps with any image element
+        let maskContext = null
+        for (const element of elements) {
+          if (element.type === 'image') {
+            const imageElement = element as ImageElement
+            if (pathOverlapsImage(normalizedPath, imageElement)) {
+              // Transform path to image-relative coordinates
+              // Assuming the image on canvas might be scaled, but we need original dimensions
+              const originalWidth = 1024 // Default generated image width
+              const originalHeight = 1536 // Default generated image height
+              
+              const relativePath = transformPathToImageCoordinates(
+                normalizedPath,
+                imageElement,
+                originalWidth,
+                originalHeight
+              )
+              
+              maskContext = {
+                selectionPath: normalizedPath,
+                targetImageId: imageElement.id,
+                targetImageElement: imageElement,
+                relativeMaskPath: relativePath,
+              }
+              break // Use the first overlapping image
+            }
+          }
+        }
+        
+        setLassoMaskContext(maskContext)
+      } else {
+        // Selection too small, clear completion position
+        setCompletionPosition(null)
       }
       
       setSelectionPath([])
@@ -537,19 +589,19 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
     
     switch (element.type) {
       case 'rectangle':
-        return <RectangleShape key={element.id} element={element} isSelected={isSelected} />
+        return <RectangleShape key={element.id} element={element} isSelected={isSelected} currentTool={currentTool} />
       case 'circle':
-        return <CircleShape key={element.id} element={element} isSelected={isSelected} />
+        return <CircleShape key={element.id} element={element} isSelected={isSelected} currentTool={currentTool} />
       case 'line':
-        return <LineShape key={element.id} element={element} isSelected={isSelected} />
+        return <LineShape key={element.id} element={element} isSelected={isSelected} currentTool={currentTool} />
       case 'freehand':
-        return <FreehandShape key={element.id} element={element} isSelected={isSelected} />
+        return <FreehandShape key={element.id} element={element} isSelected={isSelected} currentTool={currentTool} />
       case 'text':
-        return <TextNode key={element.id} element={element} isSelected={isSelected} />
+        return <TextNode key={element.id} element={element} isSelected={isSelected} currentTool={currentTool} />
       case 'sticky':
-        return <StickyNote key={element.id} element={element} isSelected={isSelected} />
+        return <StickyNote key={element.id} element={element} isSelected={isSelected} currentTool={currentTool} />
       case 'image':
-        return <ImageNode key={element.id} element={element} isSelected={isSelected} />
+        return <ImageNode key={element.id} element={element} isSelected={isSelected} currentTool={currentTool} />
       default:
         return null
     }
@@ -570,6 +622,19 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
 
   return (
     <div className="w-full h-full relative whiteboard-canvas overflow-hidden" style={{ backgroundColor: '#d1d5db' }}>
+      {/* Lasso Selection Tooltip - Only shown after completion */}
+      {completedSelectionPath.length >= 6 && completionPosition && (
+        <div 
+          className="fixed pointer-events-none z-50 px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg shadow-lg"
+          style={{
+            left: `${completionPosition.x + 15}px`,
+            top: `${completionPosition.y - 10}px`,
+          }}
+        >
+          Add to chat →
+        </div>
+      )}
+      
       {/* Add Page Button */}
       <button
         onClick={addPage}
@@ -794,7 +859,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
           )}
           
           {/* Render completed selection path (stays visible even when tool changes) */}
-          {!isDrawingSelection && completedSelectionPath.length >= 6 && selection.selectedIds.length > 0 && (
+          {!isDrawingSelection && completedSelectionPath.length >= 6 && (
             <Line
               points={completedSelectionPath}
               stroke="#3b82f6"

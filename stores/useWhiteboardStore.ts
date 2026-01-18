@@ -45,6 +45,7 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
   gestureControlEnabled: false,
   isVideoPlayerOpen: false,
   videoPlayerAction: null,
+  lassoMaskContext: null,
 
   // Tool actions
   setTool: (tool: ToolType) => set({ currentTool: tool }),
@@ -337,6 +338,11 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
         },
       }
     }),
+
+  // Lasso mask actions
+  setLassoMaskContext: (context) => set({ lassoMaskContext: context }),
+  
+  clearLassoMaskContext: () => set({ lassoMaskContext: null }),
 
   // Clear all
   clearCanvas: () =>

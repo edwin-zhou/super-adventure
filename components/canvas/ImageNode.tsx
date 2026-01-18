@@ -9,13 +9,17 @@ import type { ImageElement } from '@/types/whiteboard'
 interface ImageNodeProps {
   element: ImageElement
   isSelected: boolean
+  currentTool?: string
 }
 
-export function ImageNode({ element, isSelected }: ImageNodeProps) {
+export function ImageNode({ element, isSelected, currentTool }: ImageNodeProps) {
   const shapeRef = useRef<Konva.Image>(null)
   const transformerRef = useRef<Konva.Transformer>(null)
   const { updateElement, selectElement } = useWhiteboardStore()
   const [image, setImage] = useState<HTMLImageElement | null>(null)
+  
+  // Disable dragging when lasso tool is active
+  const isDraggable = currentTool !== 'select' && element.draggable
 
   useEffect(() => {
     const img = new window.Image()
@@ -74,7 +78,8 @@ export function ImageNode({ element, isSelected }: ImageNodeProps) {
         width={element.width}
         height={element.height}
         rotation={element.rotation}
-        draggable={element.draggable}
+        draggable={isDraggable}
+        listening={currentTool !== 'select'}
         onClick={() => selectElement(element.id)}
         onTap={() => selectElement(element.id)}
         onDragEnd={handleDragEnd}
