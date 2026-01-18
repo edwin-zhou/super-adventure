@@ -50,7 +50,7 @@ export function ExportButton({ stageRef, isVideoPlayerOpen }: ExportButtonProps)
     <Button
       onClick={handleExport}
       disabled={isExporting || elements.length === 0}
-      className={`fixed ${isVideoPlayerOpen ? 'right-[calc(50%+1rem)]' : 'right-4'} bottom-20 z-50 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 shadow-lg`}
+      className={`absolute ${isVideoPlayerOpen ? 'top-16' : 'top-4'} right-4 z-50 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 shadow-lg`}
       title="Export as PNG"
     >
       {isExporting ? (

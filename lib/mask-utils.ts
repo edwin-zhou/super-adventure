@@ -133,8 +133,21 @@ export function generateMaskFromPath(
   imageWidth: number,
   imageHeight: number
 ): string {
+  console.log('[MASK DEBUG] generateMaskFromPath called:', {
+    pathLength: path.length,
+    pathPoints: path.length / 2,
+    imageWidth,
+    imageHeight,
+    pathPreview: path.slice(0, 6),
+  });
+  
   // Normalize the path first
   const normalizedPath = normalizeToSingleHull(path)
+  console.log('[MASK DEBUG] Path normalized:', {
+    originalLength: path.length,
+    normalizedLength: normalizedPath.length,
+    normalizedPoints: normalizedPath.length / 2,
+  });
   
   if (normalizedPath.length < 6) {
     throw new Error('Path must have at least 3 points')
@@ -150,6 +163,11 @@ export function generateMaskFromPath(
     throw new Error('Could not get canvas context')
   }
   
+  console.log('[MASK DEBUG] Canvas created:', {
+    width: canvas.width,
+    height: canvas.height,
+  });
+  
   // Clear canvas (transparent background)
   ctx.clearRect(0, 0, imageWidth, imageHeight)
   
@@ -159,6 +177,10 @@ export function generateMaskFromPath(
   
   // Move to first point
   ctx.moveTo(normalizedPath[0], normalizedPath[1])
+  console.log('[MASK DEBUG] Starting path at:', {
+    x: normalizedPath[0],
+    y: normalizedPath[1],
+  });
   
   // Draw lines to remaining points
   for (let i = 2; i < normalizedPath.length; i += 2) {
@@ -169,8 +191,15 @@ export function generateMaskFromPath(
   ctx.closePath()
   ctx.fill()
   
+  console.log('[MASK DEBUG] Mask drawn on canvas, converting to base64...');
+  
   // Convert to base64 PNG
   const base64Data = canvas.toDataURL('image/png').split(',')[1]
+  
+  console.log('[MASK DEBUG] Mask generation complete:', {
+    base64Length: base64Data.length,
+    base64Preview: base64Data.substring(0, 50) + '...',
+  });
   
   return base64Data
 }

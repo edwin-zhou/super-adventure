@@ -13,6 +13,7 @@ const imageCache = new Map<string, {
   base64Data: string; 
   prompt: string;
   format: string;
+  timestamps?: number[];
 }>();
 
 function generateImageId(): string {
@@ -101,21 +102,38 @@ function imageDataToUrl(imageData: string, format: string = 'png'): string {
 // Define the study notes generation function declaration (Gemini format)
 const generateImageDeclaration = {
   name: 'generate_study_notes',
-  description: 'Generate NEW study notes or class notes based on educational content, video transcripts, or text descriptions. Creates handwritten-style notes with diagrams, equations, summaries, and organized content. IMPORTANT: The image generation tool does NOT have access to video content or conversation context - you must explicitly describe ALL content, concepts, equations, diagrams, and details that should appear in the notes. Note style templates are automatically included to match the user\'s preferred style. Use this when the user asks to create notes, generate study materials, summarize content, or create class notes from videos or text. CRITICAL: Each call to this function generates ONE page. For most content, you should call this function MULTIPLE times to create multiple pages, with each page containing a small, focused, easily digestible amount of information.',
+  description: 'Generate NEW study notes or class notes based on educational content, video transcripts, or text descriptions. Creates handwritten-style notes with diagrams, equations, summaries, and organized content. IMPORTANT: The image generation tool does NOT have access to video content or conversation context - you must explicitly describe ALL content, concepts, equations, diagrams, and details that should appear in the notes. Note style templates are automatically included to match the user\'s preferred style. Use this when the user asks to create notes, generate study materials, summarize content, or create class notes from videos or text. CRITICAL: This function generates MULTIPLE pages in a single call. Provide an array of page objects, where each page contains a focused, easily digestible amount of information.',
   parameters: {
     type: Type.OBJECT,
     properties: {
-      prompt: {
-        type: Type.STRING,
-        description: 'A focused description of ONE page of study notes to generate. Since the image tool has no access to video content or conversation context, you must explicitly include the specific content for THIS page. Each page should contain a SMALL, DIGESTIBLE amount of information - typically one main topic, concept, or section. Avoid cramming too much content onto a single page. For video-based notes, extract and describe the specific concepts, points, equations, or examples that belong on this particular page. Be extremely specific about what educational content should appear on this single page, keeping it focused and easy to read.',
+      pages: {
+        type: Type.ARRAY,
+        description: 'An array of page objects, where each object represents one page of study notes to generate. Each page should contain a SMALL, FOCUSED, EASILY DIGESTIBLE amount of information - typically one main topic, concept, or section.',
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            description: {
+              type: Type.STRING,
+              description: 'A detailed description of the content for this page. Since the image tool has no access to video content or conversation context, you must explicitly include the specific content for THIS page. For video-based notes, extract and describe the actual content, examples, equations, diagrams, and details that appear in the video. Be extremely specific about what educational content should appear on this single page, keeping it focused and easy to read. Base your description on the ACTUAL content and examples from the video - include specific examples, exact equations, detailed diagrams, and concrete explanations as they appear in the video.',
+            },
+            timestamps: {
+              type: Type.ARRAY,
+              description: 'An optional array of timestamps (in seconds) that correspond to the video content covered on this page. These are stored as metadata for future reference.',
+              items: {
+                type: Type.NUMBER,
+              },
+            },
+          },
+          required: ['description'],
+        },
       },
       size: {
         type: Type.STRING,
         enum: ['1024x1024', '1024x1536', '1536x1024', 'auto'],
-        description: 'The size of the generated notes page. Always use "1024x1536" (portrait, full-page) for study notes to fit whiteboard pages properly.',
+        description: 'The size of the generated notes pages. Always use "1024x1536" (portrait, full-page) for study notes to fit whiteboard pages properly. This size applies to all pages.',
       },
     },
-    required: ['prompt'],
+    required: ['pages'],
   },
 };
 
@@ -185,27 +203,33 @@ const setVideoTimestampDeclaration = {
 };
 
 
-// Execute the image generation function
-async function executeGenerateImage(args: { prompt: string; size?: string }): Promise<{ success: boolean; imageId?: string; message: string; error?: string }> {
-  try {
-    const client = getOpenAIClient();
-    
-    // ALWAYS include note style templates - hard-wired
-    // Start with "default" and add any user-uploaded samples
-    const allNoteStyleIds = Array.from(noteStyleSamples.keys());
-    const referenceImages: File[] = [];
-    
-    for (const refId of allNoteStyleIds) {
-      const noteSample = noteStyleSamples.get(refId);
-      if (noteSample) {
-        const imageBuffer = Buffer.from(noteSample.base64Data, 'base64');
-        const imageFile = new File([imageBuffer], `note_style_${refId}.png`, { type: 'image/png' });
-        referenceImages.push(imageFile);
-      }
+// Execute the image generation function - generates multiple pages in parallel
+async function executeGenerateImage(args: { pages: Array<{ description: string; timestamps?: number[] }>; size?: string }): Promise<Array<{ success: boolean; imageId?: string; message: string; error?: string }>> {
+  const client = getOpenAIClient();
+  
+  // ALWAYS include note style templates - hard-wired
+  // Start with "default" and add any user-uploaded samples
+  const allNoteStyleIds = Array.from(noteStyleSamples.keys());
+  const referenceImages: File[] = [];
+  
+  for (const refId of allNoteStyleIds) {
+    const noteSample = noteStyleSamples.get(refId);
+    if (noteSample) {
+      const imageBuffer = Buffer.from(noteSample.base64Data, 'base64');
+      const imageFile = new File([imageBuffer], `note_style_${refId}.png`, { type: 'image/png' });
+      referenceImages.push(imageFile);
     }
-    
-    // Build the prompt with instruction to use templates
-    const enhancedPrompt = `Style Reference:
+  }
+  
+  const templateCount = referenceImages.length;
+  const size = args.size || '1024x1536';
+  
+  // Generate all pages in parallel
+  const results = await Promise.all(
+    args.pages.map(async (page, index) => {
+      try {
+        // Build the prompt with instruction to use templates
+        const enhancedPrompt = `Style Reference:
 Use the included note style template(s) as the visual reference.
 
 Goal:
@@ -219,7 +243,7 @@ What to PRESERVE from template:
 - Organization patterns (headings, bullet points, numbering)
 
 What to CHANGE (new educational content):
-${args.prompt}
+${page.description}
 
 Constraints:
 - Maintain natural handwritten appearance
@@ -227,73 +251,77 @@ Constraints:
 - Use appropriate sizing for headings vs body text
 - No digital fonts or computer-generated text
 - Preserve the authentic study notes aesthetic from the template`;
-    
-    let response;
-    
-    if (referenceImages.length > 0) {
-      // Use the edit endpoint with reference images (note style templates)
-      response = await client.images.edit({
-        model: 'gpt-image-1.5',
-        image: referenceImages.length === 1 ? referenceImages[0] : referenceImages as any,
-        prompt: enhancedPrompt,
-        size: (args.size || '1024x1536') as any,
-        quality: 'high' as any,
-        // @ts-ignore - These are valid parameters for gpt-image models
-        output_format: 'png',
-        background: 'transparent',
-      });
-    } else {
-      // Fallback: Standard generation without references (shouldn't happen if default exists)
-      response = await client.images.generate({
-        model: 'gpt-image-1.5',
-        prompt: enhancedPrompt,
-        n: 1,
-        size: (args.size || '1024x1536') as any,
-        quality: 'high' as any,
-        // @ts-ignore - These are valid parameters for gpt-image models
-        output_format: 'png',
-        background: 'transparent',
-      });
-    }
+        
+        let response;
+        
+        if (referenceImages.length > 0) {
+          // Use the edit endpoint with reference images (note style templates)
+          response = await client.images.edit({
+            model: 'gpt-image-1.5',
+            image: referenceImages.length === 1 ? referenceImages[0] : referenceImages as any,
+            prompt: enhancedPrompt,
+            size: size as any,
+            quality: 'high' as any,
+            // @ts-ignore - These are valid parameters for gpt-image models
+            output_format: 'png',
+            background: 'transparent',
+          });
+        } else {
+          // Fallback: Standard generation without references (shouldn't happen if default exists)
+          response = await client.images.generate({
+            model: 'gpt-image-1.5',
+            prompt: enhancedPrompt,
+            n: 1,
+            size: size as any,
+            quality: 'high' as any,
+            // @ts-ignore - These are valid parameters for gpt-image models
+            output_format: 'png',
+            background: 'transparent',
+          });
+        }
 
-    if (!response.data || response.data.length === 0) {
-      throw new Error('No image data returned from API');
-    }
+        if (!response.data || response.data.length === 0) {
+          throw new Error('No image data returned from API');
+        }
 
-    const imageData = response.data[0].b64_json;
-    if (!imageData) {
-      throw new Error('Image data is empty');
-    }
+        const imageData = response.data[0].b64_json;
+        if (!imageData) {
+          throw new Error('Image data is empty');
+        }
 
-    const imageUrl = imageDataToUrl(imageData, 'png');
-    const imageId = generateImageId();
-    
-    // Cache the image for client retrieval AND for potential editing
-    imageCache.set(imageId, {
-      imageUrl,
-      base64Data: imageData,
-      prompt: response.data[0].revised_prompt || args.prompt,
-      format: 'png',
-    });
-    
-    const templateCount = referenceImages.length;
-    const refMessage = templateCount > 0 
-      ? ` (using ${templateCount} note style template(s))`
-      : '';
-    
-    return {
-      success: true,
-      imageId,
-      message: `Successfully generated study notes with ID "${imageId}"${refMessage}: "${response.data[0].revised_prompt || args.prompt}"`,
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      success: false,
-      error: errorMessage,
-      message: `Failed to generate study notes: ${errorMessage}`,
-    };
-  }
+        const imageUrl = imageDataToUrl(imageData, 'png');
+        const imageId = generateImageId();
+        
+        // Cache the image for client retrieval AND for potential editing
+        imageCache.set(imageId, {
+          imageUrl,
+          base64Data: imageData,
+          prompt: response.data[0].revised_prompt || page.description,
+          format: 'png',
+          timestamps: page.timestamps, // Store timestamps as metadata
+        });
+        
+        const refMessage = templateCount > 0 
+          ? ` (using ${templateCount} note style template(s))`
+          : '';
+        
+        return {
+          success: true,
+          imageId,
+          message: `Successfully generated study notes page ${index + 1} with ID "${imageId}"${refMessage}: "${response.data[0].revised_prompt || page.description}"`,
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        return {
+          success: false,
+          error: errorMessage,
+          message: `Failed to generate study notes page ${index + 1}: ${errorMessage}`,
+        };
+      }
+    })
+  );
+  
+  return results;
 }
 
 // Execute the image editing function (supports both full-image and masked editing)
@@ -327,14 +355,42 @@ async function executeEditImage(args: { imageId: string; editPrompt: string; mas
       background: 'transparent',
     };
     
+    console.log('[MASK DEBUG] executeEditImage called:', {
+      imageId: args.imageId,
+      editPrompt: args.editPrompt,
+      hasMaskBase64: !!args.maskBase64,
+      maskBase64Length: args.maskBase64?.length || 0,
+      sourceImageFound: !!sourceImage,
+      sourceImageFormat: sourceImage?.format,
+    });
+    
     // Add mask if provided (for inpainting)
     if (args.maskBase64) {
+      console.log('[MASK DEBUG] Adding mask to edit request...');
       const maskBuffer = Buffer.from(args.maskBase64, 'base64');
+      console.log('[MASK DEBUG] Mask buffer created:', {
+        bufferLength: maskBuffer.length,
+        expectedLength: Math.ceil(args.maskBase64.length * 3 / 4),
+      });
       const maskFile = new File([maskBuffer], 'mask.png', { type: 'image/png' });
+      console.log('[MASK DEBUG] Mask file created:', {
+        fileName: maskFile.name,
+        fileSize: maskFile.size,
+        fileType: maskFile.type,
+      });
       editRequest.mask = maskFile;
+      console.log('[MASK DEBUG] Mask added to editRequest, sending to API...');
+    } else {
+      console.log('[MASK DEBUG] No mask provided - will perform full image edit');
     }
     
     const response = await client.images.edit(editRequest);
+    
+    console.log('[MASK DEBUG] API response received:', {
+      hasData: !!response.data,
+      dataLength: response.data?.length || 0,
+      hasMask: !!editRequest.mask,
+    });
 
     if (!response.data || response.data.length === 0) {
       throw new Error('No image data returned from API');
@@ -344,6 +400,12 @@ async function executeEditImage(args: { imageId: string; editPrompt: string; mas
     if (!imageData) {
       throw new Error('Image data is empty');
     }
+    
+    console.log('[MASK DEBUG] Image edit completed:', {
+      hasImageData: !!imageData,
+      imageDataLength: imageData.length,
+      wasMasked: !!args.maskBase64,
+    });
 
     const imageUrl = imageDataToUrl(imageData, 'png');
     const newImageId = generateImageId();
@@ -447,18 +509,30 @@ You have access to four main tools for creating and managing study notes and con
    - Use when the user asks to "create notes", "generate study guide", "summarize", "make notes from this video", or "create class notes"
    - ALWAYS use size "1024x1536" (portrait, full-page) for study notes to fit whiteboard pages properly
    - CRITICAL: The image generation tool does NOT have access to video content, conversation history, or examples shown in videos. You MUST explicitly describe ALL content that should appear in the notes.
-   - **MULTI-PAGE IS THE DEFAULT**: For MOST content, you should call this function MULTIPLE times to create multiple pages. Each page should contain a SMALL, FOCUSED, EASILY DIGESTIBLE amount of information. Avoid cramming too much content onto a single page.
+   - **SINGLE CALL WITH MULTIPLE PAGES**: This function generates MULTIPLE pages in a SINGLE call. Provide an array of page objects, where each page contains a SMALL, FOCUSED, EASILY DIGESTIBLE amount of information. Avoid cramming too much content onto a single page.
    - Each page should typically focus on: one main topic, one key concept, one section, one example, or one set of related formulas. Keep pages focused and readable.
-   - For video-based notes: Extract and explicitly describe ALL key concepts, main points, important details, equations, formulas, diagrams, examples, step-by-step explanations, and visual content from the video, then split them across multiple pages logically.
    - Note style templates are automatically included - you don't need to specify them. The tool will match the user's preferred style automatically.
    - Create well-organized notes with clear sections, headings, equations, diagrams, and summaries - but spread across multiple pages for better readability
-   - Be extremely detailed in your prompt for EACH page - include specific concepts, definitions, formulas, examples, and explanations that should appear on THAT particular page
-   - **MULTI-PAGE WORKFLOW**: 
-     * Call generate_study_notes multiple times (once per page) with different, focused content sections
-     * Each call should focus on a specific subset of content that fits well on one page
-     * Then use add_notes_to_page to place each generated page sequentially (page 1, page 2, page 3, etc.)
-     * Organize content logically across pages (e.g., page 1: introduction and overview, page 2: first key concept, page 3: second key concept, page 4: examples, page 5: summary)
    - Examples: "create notes from this video", "generate a study guide on calculus", "make notes in my style"
+   
+   **WORKFLOW FOR VIDEO-BASED NOTES**:
+   - **Analysis Phase**: First, thoroughly analyze the video to extract ALL key points, concepts, examples, and their exact timestamps. Pay close attention to:
+     * Specific examples shown or discussed in the video
+     * Exact equations, formulas, or mathematical expressions presented
+     * Diagrams, charts, or visual aids displayed
+     * Step-by-step explanations or solutions demonstrated
+     * Important definitions, terminology, or concepts explained
+     * Any specific numbers, data, or facts mentioned
+   - **Grouping Phase**: Group related content together logically - each group should form one cohesive note page
+   - **Generation Phase**: Make a SINGLE call to generate_study_notes with an array of page objects. Each page object should contain:
+     * A detailed description of the content for that page (based on ACTUAL video content)
+     * The relevant timestamps (array of seconds) for that content
+   
+   **CRITICAL**: Descriptions MUST be based on the ACTUAL content and examples from the video:
+   - The image generation tool has NO access to the video. You MUST explicitly describe the actual content, examples, equations, diagrams, and details that appear in the video.
+   - Base your descriptions on what you actually see and hear in the video - include specific examples, exact equations, detailed diagrams, and concrete explanations as they appear in the video.
+   - Do not use generic descriptions - be specific about the actual content, examples, and visual elements shown in the video.
+   - Include exact equations, formulas, numbers, and step-by-step processes as they are presented in the video.
    
    **PROMPT STRUCTURE BEST PRACTICES** (per page):
    - Each page should have a clear, focused topic or section
@@ -500,25 +574,30 @@ You have access to four main tools for creating and managing study notes and con
 
 STUDY NOTES GENERATION WORKFLOW:
 - When user asks for notes, summaries, or study guides from video/text content:
-  1. ALWAYS use generate_study_notes with size "1024x1536" (portrait, full-page)
-  2. CRITICAL: The image tool has NO access to video content or conversation context. You MUST explicitly describe EVERYTHING that should appear in the notes:
-     - All key concepts, definitions, and terminology
-     - All equations, formulas, and mathematical expressions (write them out explicitly)
-     - All diagrams, charts, or visual aids (describe what they should show)
-     - All examples, step-by-step solutions, or explanations
-     - All important points, summaries, and takeaways
+  1. **Analysis Phase**: Thoroughly analyze the video to extract ALL key points, concepts, examples, and their exact timestamps. Pay close attention to:
+     - Specific examples shown or discussed in the video
+     - Exact equations, formulas, or mathematical expressions presented
+     - Diagrams, charts, or visual aids displayed
+     - Step-by-step explanations or solutions demonstrated
+     - Important definitions, terminology, or concepts explained
+     - Any specific numbers, data, or facts mentioned
+  2. **Grouping Phase**: Group related content together logically - each group should form one cohesive note page. Analyze the content and identify logical breakpoints (topics, concepts, sections, examples). Plan how to split content across multiple pages (typically 3-10+ pages depending on content volume). Each page should focus on ONE main idea, concept, or related set of information. Avoid cramming multiple major topics onto a single page.
+  3. **Generation Phase**: Make a SINGLE call to generate_study_notes with size "1024x1536" (portrait, full-page) and an array of page objects. Each page object should contain:
+     - A detailed description of the content for that page
+     - The relevant timestamps (array of seconds) for that content
+  4. **CRITICAL**: The image tool has NO access to video content or conversation context. You MUST explicitly describe EVERYTHING that should appear in the notes based on the ACTUAL video content:
+     - All key concepts, definitions, and terminology (as they appear in the video)
+     - All equations, formulas, and mathematical expressions (write them out explicitly as shown in the video)
+     - All diagrams, charts, or visual aids (describe what they actually show in the video)
+     - All examples, step-by-step solutions, or explanations (include the actual examples from the video)
+     - All important points, summaries, and takeaways (based on what's actually presented)
      - Clear headings, sections, and organization structure
-  3. **MULTI-PAGE IS THE DEFAULT**: For MOST content, split it across MULTIPLE pages. Each page should contain a SMALL, FOCUSED, EASILY DIGESTIBLE amount of information:
-     - Analyze the content and identify logical breakpoints (topics, concepts, sections, examples)
-     - Plan how to split content across 3-10+ pages (depending on content volume)
-     - Each page should focus on ONE main idea, concept, or related set of information
-     - Avoid cramming multiple major topics onto a single page
-     - Call generate_study_notes multiple times (once per page) with focused content for each page
-     - Organize content logically across pages (e.g., page 1: introduction/overview, page 2: first key concept with definition, page 3: first key concept examples, page 4: second key concept, page 5: second key concept examples, page 6: formulas summary, page 7: practice problems, etc.)
-     - Each call should focus on a specific subset of content that fits comfortably on one page without being overwhelming
-     - Use add_notes_to_page to place each generated page sequentially (page 1, page 2, page 3, etc.)
-  4. Be extremely detailed and specific in your prompt for EACH page - include all educational content from the video/text that should appear on THAT particular page
-  5. Remember: Better to have more pages with digestible content than fewer pages that are overwhelming
+  5. **CRITICAL**: Base your descriptions on the ACTUAL content and examples from the video:
+     - Do not use generic descriptions - be specific about the actual content, examples, and visual elements shown in the video
+     - Include exact equations, formulas, numbers, and step-by-step processes as they are presented in the video
+     - Base your descriptions on what you actually see and hear in the video
+  6. Be extremely detailed and specific in your description for EACH page - include all educational content from the video that should appear on THAT particular page
+  7. Remember: Better to have more pages with digestible content than fewer pages that are overwhelming
 - If user asks to add notes to whiteboard:
   - Use add_notes_to_page tool with the generated notes ID
   - Can specify which page (or default to page 1)
@@ -527,9 +606,9 @@ STUDY NOTES GENERATION WORKFLOW:
   - For multi-page notes, call add_notes_to_page multiple times with sequential page numbers
 
 DECISION GUIDE:
-- User wants notes/summary from video or text → use generate_study_notes (size: 1024x1536). Remember: explicitly describe ALL content since the tool has no video context. Note style templates are automatically included.
-  - **DEFAULT TO MULTI-PAGE**: For most content, split across multiple pages by calling generate_study_notes multiple times with different, focused content sections. Each page should contain a small, digestible amount of information. Then use add_notes_to_page with sequential page numbers to place each page.
-  - Only use a single page if the content is truly minimal (e.g., just one simple definition or one formula)
+- User wants notes/summary from video or text → use generate_study_notes (size: 1024x1536). Remember: explicitly describe ALL content based on ACTUAL video content since the tool has no video context. Note style templates are automatically included.
+  - **SINGLE CALL WITH MULTIPLE PAGES**: For most content, make a SINGLE call to generate_study_notes with an array of page objects. Each page should contain a small, digestible amount of information. The function will generate all pages in parallel. Then use add_notes_to_page with sequential page numbers to place each page.
+  - Only use a single page (array with one object) if the content is truly minimal (e.g., just one simple definition or one formula)
 - User wants to modify/correct existing notes → use edit_study_notes with imageId (mask automatically provided if region selected)
 - User wants to add notes to whiteboard → use add_notes_to_page with imageId and pageNumber (replace=true by default)
   - Pages are automatically created if they don't exist - use any page number (1, 2, 3, etc.)
@@ -557,8 +636,8 @@ export async function invokeAgent(
 ): Promise<{
   response: string;
   generatedImages?: Array<{ id: string; prompt: string; url: string }>;
-  whiteboardActions?: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number; replace?: boolean }>;
-  videoActions?: Array<{ type: string; timestamp?: number }>;
+  whiteboardActions?: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number; replace?: boolean; timestamps?: number[] }>;
+  videoActions?: Array<{ type: string; timestamp?: number; videoUrl?: string }>;
   availableNoteStyleIds?: string[];
 }> {
   const ai = getGeminiClient();
@@ -588,7 +667,15 @@ export async function invokeAgent(
   // Add mask context information if available
   let messageWithMask = message;
   if (maskContext) {
+    console.log('[MASK DEBUG] Mask context received in invokeAgent:', {
+      imageId: maskContext.imageId,
+      targetImageId: maskContext.targetImageId,
+      hasMaskBase64: !!maskContext.maskBase64,
+      maskBase64Length: maskContext.maskBase64?.length || 0,
+    });
     messageWithMask = `[MASK CONTEXT AVAILABLE: The user has selected a region on study notes "${maskContext.targetImageId}" using the lasso tool. Use edit_study_notes to edit only that region - the mask will be automatically provided.]\n\n${message}`;
+  } else {
+    console.log('[MASK DEBUG] No mask context in invokeAgent');
   }
   
   // Add the text message
@@ -612,10 +699,10 @@ export async function invokeAgent(
   const generatedImages: Array<{ id: string; prompt: string; url: string }> = [];
   
   // Track whiteboard actions to return to client
-  const whiteboardActions: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number; replace?: boolean }> = [];
+  const whiteboardActions: Array<{ type: string; imageId: string; imageUrl: string; pageNumber: number; replace?: boolean; timestamps?: number[] }> = [];
   
   // Track video actions to return to client
-  const videoActions: Array<{ type: string; timestamp?: number }> = [];
+  const videoActions: Array<{ type: string; timestamp?: number; videoUrl?: string }> = [];
   
   // Function calling loop
   let currentContents = contents;
@@ -659,21 +746,24 @@ export async function invokeAgent(
             return { index, functionName: functionName || 'unknown', functionResult: { error: 'Invalid function call' } };
           }
           
-          const functionResult = await executeGenerateImage(functionArgs as { prompt: string; size?: string });
+          const functionResults = await executeGenerateImage(functionArgs as { pages: Array<{ description: string; timestamps?: number[] }>; size?: string });
           
-          // Track generated image
-          if (functionResult.success && functionResult.imageId) {
-            const cached = imageCache.get(functionResult.imageId);
-            if (cached) {
-              generatedImages.push({
-                id: functionResult.imageId,
-                prompt: cached.prompt,
-                url: cached.imageUrl,
-              });
+          // Track all generated images from this call
+          for (const functionResult of functionResults) {
+            if (functionResult.success && functionResult.imageId) {
+              const cached = imageCache.get(functionResult.imageId);
+              if (cached) {
+                generatedImages.push({
+                  id: functionResult.imageId,
+                  prompt: cached.prompt,
+                  url: cached.imageUrl,
+                });
+              }
             }
           }
           
-          return { index, functionName, functionResult };
+          // Return the array of results as the function result
+          return { index, functionName, functionResult: functionResults };
         })
       );
       
@@ -700,6 +790,13 @@ export async function invokeAgent(
             ...(functionArgs as { imageId: string; editPrompt: string; size?: string }),
             ...(maskContext ? { maskBase64: maskContext.maskBase64 } : {}),
           };
+          console.log('[MASK DEBUG] Calling executeEditImage with args:', {
+            imageId: editArgs.imageId,
+            editPrompt: editArgs.editPrompt,
+            hasMaskBase64: !!editArgs.maskBase64,
+            maskBase64Length: editArgs.maskBase64?.length || 0,
+            size: editArgs.size,
+          });
           functionResult = await executeEditImage(editArgs);
           
           // Track edited image
@@ -727,17 +824,21 @@ export async function invokeAgent(
                 imageUrl: cached.imageUrl,
                 pageNumber: functionResult.pageNumber,
                 replace: functionResult.replace,
+                timestamps: cached.timestamps, // Include timestamps from cache
               });
             }
           }
         } else if (functionName === 'set_video_timestamp') {
           functionResult = await executeSetVideoTimestamp(functionArgs as { timestamp: number });
           
-          // Track video action
+          // Track video action with video URL from context
           if (functionResult.success) {
+            // Get the most recent video from context (or first if multiple)
+            const videoUrl = videoContext.length > 0 ? videoContext[videoContext.length - 1] : undefined;
             videoActions.push({
               type: 'seek_to_timestamp',
               timestamp: functionResult.timestamp,
+              videoUrl: videoUrl,
             });
           }
         } else {
@@ -851,11 +952,15 @@ export async function getVideoContext(): Promise<string[]> {
 }
 
 // Retrieve a generated image by ID (kept in cache for potential editing)
-export async function getGeneratedImage(imageId: string): Promise<{ imageUrl: string; prompt: string } | null> {
+export async function getGeneratedImage(imageId: string): Promise<{ imageUrl: string; prompt: string; timestamps?: number[] } | null> {
   const cached = imageCache.get(imageId);
   if (cached) {
     // Keep in cache so the image can be edited later
-    return { imageUrl: cached.imageUrl, prompt: cached.prompt };
+    return { 
+      imageUrl: cached.imageUrl, 
+      prompt: cached.prompt,
+      timestamps: cached.timestamps,
+    };
   }
   return null;
 }

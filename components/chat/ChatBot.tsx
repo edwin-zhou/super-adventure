@@ -72,7 +72,7 @@ interface NoteStyleSample {
 }
 
 interface ChatBotProps {
-  onAddImageToPage?: (imageUrl: string, pageNumber: number, replace?: boolean) => void
+  onAddImageToPage?: (imageUrl: string, pageNumber: number, replace?: boolean, timestamps?: number[], generatedImageId?: string) => void
 }
 
 // Fetch video title from YouTube oEmbed API
@@ -154,22 +154,46 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
       // Prepare mask context if available
       let maskContext = null
       if (lassoMaskContext?.targetImageId && lassoMaskContext?.relativeMaskPath) {
+        console.log('[MASK DEBUG] Mask context detected:', {
+          targetImageId: lassoMaskContext.targetImageId,
+          pathLength: lassoMaskContext.relativeMaskPath.length,
+          pathPoints: lassoMaskContext.relativeMaskPath.length / 2,
+          pathPreview: lassoMaskContext.relativeMaskPath.slice(0, 6),
+        })
         try {
           // Generate mask from the relative path
+          console.log('[MASK DEBUG] Generating mask from path...')
           const maskBase64 = generateMaskFromPath(
             lassoMaskContext.relativeMaskPath,
             1024, // Default image width
             1536  // Default image height
           )
           
+          console.log('[MASK DEBUG] Mask generated successfully:', {
+            maskBase64Length: maskBase64.length,
+            maskBase64Preview: maskBase64.substring(0, 50) + '...',
+          })
+          
           maskContext = {
             imageId: lassoMaskContext.targetImageId,
             maskBase64,
             targetImageId: lassoMaskContext.targetImageId,
           }
+          
+          console.log('[MASK DEBUG] Mask context prepared:', {
+            imageId: maskContext.imageId,
+            targetImageId: maskContext.targetImageId,
+            hasMaskBase64: !!maskContext.maskBase64,
+          })
         } catch (error) {
-          console.error('Failed to generate mask:', error)
+          console.error('[MASK DEBUG] Failed to generate mask:', error)
         }
+      } else {
+        console.log('[MASK DEBUG] No mask context available:', {
+          hasLassoMaskContext: !!lassoMaskContext,
+          hasTargetImageId: !!lassoMaskContext?.targetImageId,
+          hasRelativeMaskPath: !!lassoMaskContext?.relativeMaskPath,
+        })
       }
       
       const result = await invokeAgent(text, undefined, maskContext)
@@ -177,17 +201,56 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
       if (result.whiteboardActions && result.whiteboardActions.length > 0 && onAddImageToPage) {
         for (const action of result.whiteboardActions) {
           if (action.type === 'add_full_page_image') {
-            onAddImageToPage(action.imageUrl, action.pageNumber, action.replace)
+            // Pass the agent's imageId so the canvas element can be linked for future edits
+            onAddImageToPage(action.imageUrl, action.pageNumber, action.replace, action.timestamps, action.imageId)
           }
         }
       }
 
       // Handle video actions if any
       if (result.videoActions && result.videoActions.length > 0) {
-        const { setVideoPlayerTimestamp } = useWhiteboardStore.getState()
+        const { 
+          setVideoPlayerTimestamp, 
+          setVideoPlayerUrl, 
+          setVideoPlayerOpen,
+          setVideoPlayerAction,
+          isVideoPlayerOpen 
+        } = useWhiteboardStore.getState()
         for (const action of result.videoActions) {
           if (action.type === 'seek_to_timestamp' && action.timestamp !== undefined) {
-            setVideoPlayerTimestamp(action.timestamp)
+            // Open video player if not already open
+            if (!isVideoPlayerOpen) {
+              setVideoPlayerOpen(true)
+            }
+            // If video URL is provided, load it
+            if (action.videoUrl) {
+              setVideoPlayerUrl(action.videoUrl)
+              const timestamp = action.timestamp!
+              
+              // Wait for video/iframe to load and initialize
+              // YouTube/Vimeo iframes need more time to be ready for API commands
+              setTimeout(() => {
+                // Set timestamp first
+                setVideoPlayerTimestamp(timestamp)
+                // Retry setting timestamp after a delay (for iframes that need more time)
+                setTimeout(() => {
+                  setVideoPlayerTimestamp(timestamp)
+                }, 500)
+                // Then play after timestamp is set (allows seek to complete)
+                setTimeout(() => {
+                  setVideoPlayerAction('play')
+                  // Set timestamp one more time after play starts (ensures seek works)
+                  setTimeout(() => {
+                    setVideoPlayerTimestamp(timestamp)
+                  }, 300)
+                }, 800)
+              }, 1000)
+            } else {
+              // If no video URL, set timestamp immediately (video already loaded)
+              setVideoPlayerTimestamp(action.timestamp)
+              // Start playing the video
+              setVideoPlayerAction('play')
+            }
           }
         }
       }
@@ -246,11 +309,15 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
     onError: (error) => console.warn('[Voice]', error),
   })
 
-  // Handle chatbot open/voice activation from store
+  // Handle chatbot open from store (e.g., when lasso selection is made on an image)
   useEffect(() => {
-    if (isChatbotOpen && isMinimized) {
-      setIsMinimized(false)
-      setChatbotOpen(false) // Reset flag
+    if (isChatbotOpen) {
+      // Unminimize if minimized
+      if (isMinimized) {
+        setIsMinimized(false)
+      }
+      // Reset the flag after handling
+      setChatbotOpen(false)
     }
   }, [isChatbotOpen, isMinimized, setChatbotOpen])
 
@@ -265,11 +332,16 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
   const addPendingVideo = useCallback(async (url: string) => {
     const normalizedUrl = normalizeYoutubeUrl(url)
     
+    // Get video player store actions
+    const { setVideoPlayerUrl, setVideoPlayerOpen } = useWhiteboardStore.getState()
+    
     // Check if already at max or URL already exists
+    let shouldAddVideo = false
     setPendingVideos(prev => {
       if (prev.length >= MAX_VIDEOS) return prev
       if (prev.some(v => v.url === normalizedUrl)) return prev
       
+      shouldAddVideo = true
       const newVideo: PendingVideo = {
         id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
         url: normalizedUrl,
@@ -278,6 +350,12 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
       }
       return [...prev, newVideo]
     })
+
+    // If video was added, also set it in the video player (use the most recent video)
+    if (shouldAddVideo) {
+      setVideoPlayerUrl(normalizedUrl)
+      setVideoPlayerOpen(true)
+    }
 
     // Fetch title asynchronously
     const title = await fetchVideoTitle(normalizedUrl)
@@ -383,17 +461,56 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
       if (result.whiteboardActions && result.whiteboardActions.length > 0 && onAddImageToPage) {
         for (const action of result.whiteboardActions) {
           if (action.type === 'add_full_page_image') {
-            onAddImageToPage(action.imageUrl, action.pageNumber, action.replace)
+            // Pass the agent's imageId so the canvas element can be linked for future edits
+            onAddImageToPage(action.imageUrl, action.pageNumber, action.replace, action.timestamps, action.imageId)
           }
         }
       }
 
       // Handle video actions if any
       if (result.videoActions && result.videoActions.length > 0) {
-        const { setVideoPlayerTimestamp } = useWhiteboardStore.getState()
+        const { 
+          setVideoPlayerTimestamp, 
+          setVideoPlayerUrl, 
+          setVideoPlayerOpen,
+          setVideoPlayerAction,
+          isVideoPlayerOpen 
+        } = useWhiteboardStore.getState()
         for (const action of result.videoActions) {
           if (action.type === 'seek_to_timestamp' && action.timestamp !== undefined) {
-            setVideoPlayerTimestamp(action.timestamp)
+            // Open video player if not already open
+            if (!isVideoPlayerOpen) {
+              setVideoPlayerOpen(true)
+            }
+            // If video URL is provided, load it
+            if (action.videoUrl) {
+              setVideoPlayerUrl(action.videoUrl)
+              const timestamp = action.timestamp!
+              
+              // Wait for video/iframe to load and initialize
+              // YouTube/Vimeo iframes need more time to be ready for API commands
+              setTimeout(() => {
+                // Set timestamp first
+                setVideoPlayerTimestamp(timestamp)
+                // Retry setting timestamp after a delay (for iframes that need more time)
+                setTimeout(() => {
+                  setVideoPlayerTimestamp(timestamp)
+                }, 500)
+                // Then play after timestamp is set (allows seek to complete)
+                setTimeout(() => {
+                  setVideoPlayerAction('play')
+                  // Set timestamp one more time after play starts (ensures seek works)
+                  setTimeout(() => {
+                    setVideoPlayerTimestamp(timestamp)
+                  }, 300)
+                }, 800)
+              }, 1000)
+            } else {
+              // If no video URL, set timestamp immediately (video already loaded)
+              setVideoPlayerTimestamp(action.timestamp)
+              // Start playing the video
+              setVideoPlayerAction('play')
+            }
           }
         }
       }
@@ -628,9 +745,9 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
       <div className="fixed bottom-4 right-4 z-50">
         <Button
           onClick={() => setIsMinimized(false)}
-          className="rounded-full w-14 h-14 bg-theme-primary bg-theme-primary-hover shadow-lg"
+          className="rounded-full w-14 h-14 bg-slate-700 hover:bg-slate-600 shadow-lg"
         >
-          <Bot size={24} />
+          <Bot size={24} className="fill-blue-500 text-blue-500" />
         </Button>
       </div>
     )

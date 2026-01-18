@@ -24,10 +24,29 @@ interface UseVoiceAgentReturn {
   stopSession: () => void
 }
 
+// Track the current playing audio instance to interrupt previous playback
+let currentAudioInstance: HTMLAudioElement | null = null
+
 /**
  * Plays text as speech using the TTS API
+ * Interrupts any currently playing audio before starting new playback
  */
 async function speakText(text: string): Promise<void> {
+  // Stop and clean up any currently playing audio
+  if (currentAudioInstance) {
+    try {
+      currentAudioInstance.pause()
+      currentAudioInstance.currentTime = 0
+      // Clean up the previous audio URL if it exists
+      if (currentAudioInstance.src && currentAudioInstance.src.startsWith('blob:')) {
+        URL.revokeObjectURL(currentAudioInstance.src)
+      }
+    } catch (err) {
+      console.warn('Error stopping previous audio:', err)
+    }
+    currentAudioInstance = null
+  }
+
   const response = await fetch('/api/elevenlabs/tts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -43,15 +62,29 @@ async function speakText(text: string): Promise<void> {
   
   return new Promise((resolve, reject) => {
     const audio = new Audio(audioUrl)
+    currentAudioInstance = audio
+    
     audio.onended = () => {
       URL.revokeObjectURL(audioUrl)
+      if (currentAudioInstance === audio) {
+        currentAudioInstance = null
+      }
       resolve()
     }
     audio.onerror = () => {
       URL.revokeObjectURL(audioUrl)
+      if (currentAudioInstance === audio) {
+        currentAudioInstance = null
+      }
       reject(new Error('Audio playback failed'))
     }
-    audio.play().catch(reject)
+    audio.play().catch((err) => {
+      URL.revokeObjectURL(audioUrl)
+      if (currentAudioInstance === audio) {
+        currentAudioInstance = null
+      }
+      reject(err)
+    })
   })
 }
 
@@ -197,6 +230,20 @@ export function useVoiceAgent({ onSubmit, onError }: UseVoiceAgentOptions): UseV
     stoppingRef.current = true
     shouldResumeRef.current = false
     
+    // Stop any currently playing audio
+    if (currentAudioInstance) {
+      try {
+        currentAudioInstance.pause()
+        currentAudioInstance.currentTime = 0
+        if (currentAudioInstance.src && currentAudioInstance.src.startsWith('blob:')) {
+          URL.revokeObjectURL(currentAudioInstance.src)
+        }
+      } catch (err) {
+        console.warn('Error stopping audio on session stop:', err)
+      }
+      currentAudioInstance = null
+    }
+    
     scribe.disconnect()
     scribe.clearTranscripts()
     
@@ -210,6 +257,19 @@ export function useVoiceAgent({ onSubmit, onError }: UseVoiceAgentOptions): UseV
   useEffect(() => {
     return () => {
       stoppingRef.current = true
+      // Stop any currently playing audio on unmount
+      if (currentAudioInstance) {
+        try {
+          currentAudioInstance.pause()
+          currentAudioInstance.currentTime = 0
+          if (currentAudioInstance.src && currentAudioInstance.src.startsWith('blob:')) {
+            URL.revokeObjectURL(currentAudioInstance.src)
+          }
+        } catch (err) {
+          console.warn('Error stopping audio on unmount:', err)
+        }
+        currentAudioInstance = null
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
