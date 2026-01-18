@@ -24,7 +24,7 @@ function App() {
   const [isDragging, setIsDragging] = useState(false)
   
   // Ref to access WhiteboardCanvas functions
-  const whiteboardRef = useRef<{ addImageToPage: (imageUrl: string, pageNumber: number, replace?: boolean, timestamps?: number[]) => void }>(null)
+  const whiteboardRef = useRef<{ addImageToPage: (imageUrl: string, pageNumber: number, replace?: boolean, timestamps?: number[], generatedImageId?: string) => void }>(null)
 
   const handleDragStart = (e: React.DragEvent) => {
     setIsDragging(true)
@@ -47,8 +47,8 @@ function App() {
   }
 
   // Callback for ChatBot to add images to whiteboard pages
-  const handleAddImageToPage = useCallback((imageUrl: string, pageNumber: number, replace?: boolean, timestamps?: number[]) => {
-    whiteboardRef.current?.addImageToPage(imageUrl, pageNumber, replace, timestamps)
+  const handleAddImageToPage = useCallback((imageUrl: string, pageNumber: number, replace?: boolean, timestamps?: number[], generatedImageId?: string) => {
+    whiteboardRef.current?.addImageToPage(imageUrl, pageNumber, replace, timestamps, generatedImageId)
   }, [])
 
   const videoPlayerSection = (

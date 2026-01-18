@@ -23,7 +23,7 @@ interface WhiteboardCanvasProps {
 }
 
 export interface WhiteboardCanvasRef {
-  addImageToPage: (imageUrl: string, pageNumber: number, replace?: boolean, timestamps?: number[]) => void
+  addImageToPage: (imageUrl: string, pageNumber: number, replace?: boolean, timestamps?: number[], generatedImageId?: string) => void
 }
 
 export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
@@ -62,6 +62,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
     setVideoPlayerTimestamp,
     setVideoPlayerOpen,
     setVideoPlayerAction,
+    setChatbotOpen,
   } = useWhiteboardStore()
   
   // Get isVideoPlayerOpen and videoPlayerUrl from store (prop might be stale)
@@ -150,7 +151,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
   }
 
   // Function to add an image to a specific page
-  const addImageToPage = useCallback((imageUrl: string, pageNumber: number, replace: boolean = true, timestamps?: number[]) => {
+  const addImageToPage = useCallback((imageUrl: string, pageNumber: number, replace: boolean = true, timestamps?: number[], generatedImageId?: string) => {
     // Calculate what pages we need and the page Y position
     const currentPages = [...pages]
     while (currentPages.length < pageNumber) {
@@ -231,6 +232,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       draggable: true,
       visible: true,
       timestamps: timestamps, // Store timestamps with the image element
+      generatedImageId: generatedImageId, // Store the agent's image cache ID for editing
     }
     
     // Add element outside of setPages callback
@@ -470,6 +472,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       
       if (currentTool === 'select') {
         // Clear previous selection and start new lasso selection
+        console.log('[MASK DEBUG] Starting lasso selection at:', transformedPoint)
         clearSelection()
         setCompletedSelectionPath([])
         setIsDrawingSelection(true)
@@ -494,6 +497,14 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
     const transformedPoint = {
       x: (point.x - viewport.x) / viewport.scale,
       y: (point.y - viewport.y) / viewport.scale,
+    }
+    
+    // Debug: log when isDrawingSelection is true (but only first few times)
+    if (isDrawingSelection && selectionPath.length < 10) {
+      console.log('[MASK DEBUG] handleMouseMove with isDrawingSelection=true:', {
+        currentTool,
+        pathLength: selectionPath.length,
+      })
     }
     
     // Handle dragging selected elements
@@ -528,8 +539,23 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
     
     // Handle lasso selection drawing
     if (isDrawingSelection && currentTool === 'select') {
-      setSelectionPath([...selectionPath, transformedPoint.x, transformedPoint.y])
+      // Use functional update to avoid stale closure issues
+      setSelectionPath(prev => {
+        // Only log occasionally to avoid console spam
+        if (prev.length % 40 === 0) {
+          console.log('[MASK DEBUG] Adding point to lasso path:', {
+            currentPathLength: prev.length,
+            newPoint: transformedPoint,
+          })
+        }
+        return [...prev, transformedPoint.x, transformedPoint.y]
+      })
       return
+    }
+    
+    // Debug: Check why lasso points might not be captured
+    if (isDrawingSelection) {
+      console.log('[MASK DEBUG] isDrawingSelection=true but currentTool is:', currentTool)
     }
     
     // Handle normal drawing
@@ -539,8 +565,18 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
   }
 
   const handleMouseUp = () => {
+    console.log('[MASK DEBUG] handleMouseUp called:', {
+      isDrawingSelection,
+      currentTool,
+      selectionPathLength: selectionPath.length,
+    })
+    
     // Handle lasso selection completion
     if (isDrawingSelection && currentTool === 'select') {
+      console.log('[MASK DEBUG] Lasso selection completed:', {
+        selectionPathLength: selectionPath.length,
+        selectionPoints: selectionPath.length / 2,
+      })
       setIsDrawingSelection(false)
       
       // Find all elements inside the selection path
@@ -572,10 +608,28 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
         
         // Check if the selection overlaps with any image element
         let maskContext = null
+        const imageElements = elements.filter(e => e.type === 'image')
+        console.log('[MASK DEBUG] Checking for image overlap:', {
+          totalElements: elements.length,
+          imageElements: imageElements.length,
+          normalizedPathLength: normalizedPath.length,
+        })
+        
         for (const element of elements) {
           if (element.type === 'image') {
             const imageElement = element as ImageElement
-            if (pathOverlapsImage(normalizedPath, imageElement)) {
+            console.log('[MASK DEBUG] Checking image element:', {
+              id: imageElement.id,
+              x: imageElement.x,
+              y: imageElement.y,
+              width: imageElement.width,
+              height: imageElement.height,
+            })
+            
+            const overlaps = pathOverlapsImage(normalizedPath, imageElement)
+            console.log('[MASK DEBUG] Path overlaps image:', overlaps)
+            
+            if (overlaps) {
               // Transform path to image-relative coordinates
               // Assuming the image on canvas might be scaled, but we need original dimensions
               const originalWidth = 1024 // Default generated image width
@@ -588,9 +642,20 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 originalHeight
               )
               
+              // Use generatedImageId (agent's cache ID) if available, otherwise fall back to element ID
+              const imageIdForAgent = imageElement.generatedImageId || imageElement.id
+              
+              console.log('[MASK DEBUG] Creating mask context:', {
+                targetImageId: imageIdForAgent,
+                elementId: imageElement.id,
+                generatedImageId: imageElement.generatedImageId,
+                relativePathLength: relativePath.length,
+                relativePathPreview: relativePath.slice(0, 6),
+              })
+              
               maskContext = {
                 selectionPath: normalizedPath,
-                targetImageId: imageElement.id,
+                targetImageId: imageIdForAgent,
                 targetImageElement: imageElement,
                 relativeMaskPath: relativePath,
               }
@@ -599,7 +664,18 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
           }
         }
         
+        console.log('[MASK DEBUG] Setting lasso mask context:', maskContext ? {
+          targetImageId: maskContext.targetImageId,
+          hasRelativePath: !!maskContext.relativeMaskPath,
+          pathLength: maskContext.relativeMaskPath?.length,
+        } : null)
         setLassoMaskContext(maskContext)
+        
+        // Open chatbot when a selection is made on an image
+        if (maskContext) {
+          console.log('[MASK DEBUG] Opening chatbot for image selection')
+          setChatbotOpen(true)
+        }
       } else {
         // Selection too small, clear completion position
         setCompletionPosition(null)

@@ -355,14 +355,42 @@ async function executeEditImage(args: { imageId: string; editPrompt: string; mas
       background: 'transparent',
     };
     
+    console.log('[MASK DEBUG] executeEditImage called:', {
+      imageId: args.imageId,
+      editPrompt: args.editPrompt,
+      hasMaskBase64: !!args.maskBase64,
+      maskBase64Length: args.maskBase64?.length || 0,
+      sourceImageFound: !!sourceImage,
+      sourceImageFormat: sourceImage?.format,
+    });
+    
     // Add mask if provided (for inpainting)
     if (args.maskBase64) {
+      console.log('[MASK DEBUG] Adding mask to edit request...');
       const maskBuffer = Buffer.from(args.maskBase64, 'base64');
+      console.log('[MASK DEBUG] Mask buffer created:', {
+        bufferLength: maskBuffer.length,
+        expectedLength: Math.ceil(args.maskBase64.length * 3 / 4),
+      });
       const maskFile = new File([maskBuffer], 'mask.png', { type: 'image/png' });
+      console.log('[MASK DEBUG] Mask file created:', {
+        fileName: maskFile.name,
+        fileSize: maskFile.size,
+        fileType: maskFile.type,
+      });
       editRequest.mask = maskFile;
+      console.log('[MASK DEBUG] Mask added to editRequest, sending to API...');
+    } else {
+      console.log('[MASK DEBUG] No mask provided - will perform full image edit');
     }
     
     const response = await client.images.edit(editRequest);
+    
+    console.log('[MASK DEBUG] API response received:', {
+      hasData: !!response.data,
+      dataLength: response.data?.length || 0,
+      hasMask: !!editRequest.mask,
+    });
 
     if (!response.data || response.data.length === 0) {
       throw new Error('No image data returned from API');
@@ -372,6 +400,12 @@ async function executeEditImage(args: { imageId: string; editPrompt: string; mas
     if (!imageData) {
       throw new Error('Image data is empty');
     }
+    
+    console.log('[MASK DEBUG] Image edit completed:', {
+      hasImageData: !!imageData,
+      imageDataLength: imageData.length,
+      wasMasked: !!args.maskBase64,
+    });
 
     const imageUrl = imageDataToUrl(imageData, 'png');
     const newImageId = generateImageId();
@@ -633,7 +667,15 @@ export async function invokeAgent(
   // Add mask context information if available
   let messageWithMask = message;
   if (maskContext) {
+    console.log('[MASK DEBUG] Mask context received in invokeAgent:', {
+      imageId: maskContext.imageId,
+      targetImageId: maskContext.targetImageId,
+      hasMaskBase64: !!maskContext.maskBase64,
+      maskBase64Length: maskContext.maskBase64?.length || 0,
+    });
     messageWithMask = `[MASK CONTEXT AVAILABLE: The user has selected a region on study notes "${maskContext.targetImageId}" using the lasso tool. Use edit_study_notes to edit only that region - the mask will be automatically provided.]\n\n${message}`;
+  } else {
+    console.log('[MASK DEBUG] No mask context in invokeAgent');
   }
   
   // Add the text message
@@ -748,6 +790,13 @@ export async function invokeAgent(
             ...(functionArgs as { imageId: string; editPrompt: string; size?: string }),
             ...(maskContext ? { maskBase64: maskContext.maskBase64 } : {}),
           };
+          console.log('[MASK DEBUG] Calling executeEditImage with args:', {
+            imageId: editArgs.imageId,
+            editPrompt: editArgs.editPrompt,
+            hasMaskBase64: !!editArgs.maskBase64,
+            maskBase64Length: editArgs.maskBase64?.length || 0,
+            size: editArgs.size,
+          });
           functionResult = await executeEditImage(editArgs);
           
           // Track edited image
