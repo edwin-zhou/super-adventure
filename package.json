@@ -24,6 +24,8 @@
     "typescript": "~5.9.3"
   },
   "dependencies": {
+    "@elevenlabs/elevenlabs-js": "^2.31.0",
+    "@elevenlabs/react": "^0.13.0",
     "@google/genai": "^1.37.0",
     "@mediapipe/camera_utils": "^0.3.1675466862",
     "@mediapipe/drawing_utils": "^0.3.1675466124",

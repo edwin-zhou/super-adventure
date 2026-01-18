@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Bot, Minimize2, Headphones, X, Plus, Upload, Link, Youtube, Loader2, Download, RotateCcw } from 'lucide-react'
+import { Send, Bot, Minimize2, X, Plus, Upload, Link, Youtube, Loader2, Download, RotateCcw, AudioLines, Square } from 'lucide-react'
+import { useVoiceAgent } from '@/hooks/useVoiceAgent'
 import ReactMarkdown from 'react-markdown'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
@@ -98,8 +99,6 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
   ])
   const [input, setInput] = useState('')
   const [isMinimized, setIsMinimized] = useState(false)
-  const [showVoiceCoach, setShowVoiceCoach] = useState(false)
-  const [voiceCoachEnabled, setVoiceCoachEnabled] = useState(false)
   const [showPlusMenu, setShowPlusMenu] = useState(false)
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [showUrlModal, setShowUrlModal] = useState(false)
@@ -111,6 +110,101 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const noteStyleInputRef = useRef<HTMLInputElement>(null)
+
+  // Voice agent callback - wraps handleSend to return response text
+  const handleVoiceSubmit = useCallback(async (text: string): Promise<string> => {
+    // Collect all YouTube URLs from pending videos
+    const pendingUrls = pendingVideos.map(v => v.url)
+    const allYoutubeUrls = [...new Set(pendingUrls)]
+    
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: text,
+      timestamp: new Date(),
+      youtubeUrl: allYoutubeUrls[0],
+    }
+
+    const loadingMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      role: 'assistant',
+      content: 'Thinking...',
+      timestamp: new Date(),
+      isLoading: true,
+    }
+
+    setMessages((prev) => [...prev, userMessage, loadingMessage])
+    setPendingVideos([])
+    setIsGenerating(true)
+
+    try {
+      if (allYoutubeUrls.length > 0) {
+        addVideosToContext(allYoutubeUrls)
+      }
+      
+      const result = await invokeAgent(text)
+
+      if (result.whiteboardActions && result.whiteboardActions.length > 0 && onAddImageToPage) {
+        for (const action of result.whiteboardActions) {
+          if (action.type === 'add_full_page_image') {
+            onAddImageToPage(action.imageUrl, action.pageNumber)
+          }
+        }
+      }
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === loadingMessage.id
+            ? {
+                ...m,
+                content: result.response,
+                imageUrl: result.generatedImages?.[0]?.url,
+                imagePrompt: result.generatedImages?.[0]?.prompt,
+                isLoading: false,
+                timestamp: new Date(),
+              }
+            : m
+        )
+      )
+
+      return result.response
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === loadingMessage.id
+            ? {
+                ...m,
+                content: `❌ ${errorMessage}`,
+                isLoading: false,
+                isError: true,
+                timestamp: new Date(),
+              }
+            : m
+        )
+      )
+      
+      throw error
+    } finally {
+      setIsGenerating(false)
+    }
+  }, [pendingVideos, onAddImageToPage])
+
+  // Voice agent hook
+  const {
+    isVoiceMode,
+    isListening,
+    isAgentTurn,
+    isSpeaking,
+    partialTranscript,
+    error: voiceError,
+    startSession,
+    stopSession,
+  } = useVoiceAgent({
+    onSubmit: handleVoiceSubmit,
+    onError: (error) => console.warn('[Voice]', error),
+  })
 
   // Add a video to pending list
   const addPendingVideo = useCallback(async (url: string) => {
@@ -499,18 +593,6 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
             >
               <RotateCcw size={16} />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                'h-8 w-8',
-                voiceCoachEnabled ? 'text-theme-primary' : 'text-slate-400 hover:text-white'
-              )}
-              onClick={() => setShowVoiceCoach(!showVoiceCoach)}
-              title="Voice Coach"
-            >
-              <Headphones size={16} />
-            </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -521,40 +603,6 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
           </Button>
         </div>
       </div>
-
-      {/* Voice Coach Panel */}
-      {showVoiceCoach && (
-        <div className="p-4 border-b border-slate-700 bg-slate-900/50">
-          <div className="flex items-center justify-between">
-            <Label className="text-sm text-white">Voice Coach</Label>
-            <button
-              onClick={() => setShowVoiceCoach(false)}
-              className="text-slate-400 hover:text-white"
-            >
-              <X size={16} />
-            </button>
-          </div>
-          <div className="mt-3 flex items-center justify-between">
-            <span className="text-sm text-slate-300">
-              {voiceCoachEnabled ? 'Enabled' : 'Disabled'}
-            </span>
-            <button
-              onClick={() => setVoiceCoachEnabled(!voiceCoachEnabled)}
-              className={cn(
-                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                voiceCoachEnabled ? 'bg-theme-primary' : 'bg-slate-600'
-              )}
-            >
-              <span
-                className={cn(
-                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-                  voiceCoachEnabled ? 'translate-x-6' : 'translate-x-1'
-                )}
-              />
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Note style samples indicator */}
       {noteStyleSamples.length > 0 && (
@@ -775,14 +823,38 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
 
       {/* Input */}
       <div className="p-4 border-t border-slate-700">
+        {/* Voice mode indicator */}
+        {isVoiceMode && (
+          <div className={cn(
+            'mb-2 px-3 py-2 rounded',
+            isListening ? 'bg-green-500/10' : 'bg-blue-500/10'
+          )}>
+            <div className="flex items-center gap-2 mb-1">
+              <div className={cn(
+                'w-2 h-2 rounded-full',
+                isListening ? 'bg-green-500 animate-pulse' : 'bg-blue-500'
+              )} />
+              <span className={cn(
+                'text-xs',
+                isListening ? 'text-green-400' : 'text-blue-400'
+              )}>
+                {isSpeaking ? 'Speaking...' : isAgentTurn ? 'Processing...' : isListening ? 'Listening...' : 'Voice mode active'}
+              </span>
+              {voiceError && (
+                <span className="text-xs text-red-400 ml-auto">{voiceError}</span>
+              )}
+            </div>
+          </div>
+        )}
+        
         {/* YouTube indicator in input */}
-        {inputHasYoutube && pendingVideos.length < MAX_VIDEOS && (
+        {!isVoiceMode && inputHasYoutube && pendingVideos.length < MAX_VIDEOS && (
           <div className="mb-2 px-2 py-1 bg-red-500/10 rounded flex items-center gap-2">
             <Youtube size={14} className="text-red-500" />
             <span className="text-xs text-red-400">YouTube video detected - will be added on send</span>
           </div>
         )}
-        {pendingVideos.length >= MAX_VIDEOS && (
+        {!isVoiceMode && pendingVideos.length >= MAX_VIDEOS && (
           <div className="mb-2 px-2 py-1 bg-amber-500/10 rounded flex items-center gap-2">
             <Youtube size={14} className="text-amber-500" />
             <span className="text-xs text-amber-400">Maximum {MAX_VIDEOS} videos reached</span>
@@ -800,7 +872,7 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
               size="icon"
               className="text-slate-400 hover:text-white"
               title="Add content"
-              disabled={isGenerating}
+              disabled={isGenerating || isVoiceMode}
             >
               <Plus size={18} />
             </Button>
@@ -871,10 +943,11 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
             accept="image/*"
           />
           <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
+            value={isVoiceMode ? partialTranscript : input}
+            onChange={(e) => !isVoiceMode && setInput(e.target.value)}
             onKeyPress={handleKeyPress}
             onPaste={(e) => {
+              if (isVoiceMode) return
               const pastedText = e.clipboardData.getData('text')
               // If pasted text contains YouTube URLs, add them to context
               if (containsYoutubeUrl(pastedText)) {
@@ -889,26 +962,52 @@ export function ChatBot({ onAddImageToPage }: ChatBotProps = {}) {
               }
             }}
             placeholder={
-              isGenerating 
-                ? 'Generating...' 
-                : pendingVideos.length > 0 
-                  ? `Ask about ${pendingVideos.length === 1 ? 'this video' : `these ${pendingVideos.length} videos`}...` 
-                  : 'Ask anything or paste YouTube URLs...'
+              isVoiceMode
+                ? (isSpeaking ? 'Speaking...' : isAgentTurn ? 'Processing...' : 'Listening...')
+                : isGenerating 
+                  ? 'Generating...' 
+                  : pendingVideos.length > 0 
+                    ? `Ask about ${pendingVideos.length === 1 ? 'this video' : `these ${pendingVideos.length} videos`}...` 
+                    : 'Ask anything or paste YouTube URLs...'
             }
             className="flex-1 bg-slate-900 border-slate-600 text-white placeholder:text-slate-500"
-            disabled={isGenerating}
+            disabled={isGenerating || isVoiceMode}
           />
-          <Button
-            onClick={() => handleSend()}
-            disabled={(!input.trim() && pendingVideos.length === 0) || isGenerating}
-            className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500"
-          >
-            {isGenerating ? (
-              <Loader2 size={18} className="animate-spin" />
-            ) : (
-              <Send size={18} />
-            )}
-          </Button>
+          
+          {/* Voice/Stop/Send Button */}
+          {isVoiceMode ? (
+            // Stop button - exits voice mode
+            <Button
+              onClick={stopSession}
+              className="bg-red-600 hover:bg-red-500"
+              title="Stop voice mode"
+            >
+              <Square size={18} />
+            </Button>
+          ) : input.trim() || pendingVideos.length > 0 ? (
+            // Send button - when there's text or videos
+            <Button
+              onClick={() => handleSend()}
+              disabled={isGenerating}
+              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500"
+            >
+              {isGenerating ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : (
+                <Send size={18} />
+              )}
+            </Button>
+          ) : (
+            // Voice button - starts voice mode (when input is empty)
+            <Button
+              onClick={startSession}
+              disabled={isGenerating}
+              className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500"
+              title="Start voice mode"
+            >
+              <AudioLines size={18} />
+            </Button>
+          )}
         </div>
       </div>
 
