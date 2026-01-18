@@ -170,8 +170,18 @@ export interface WhiteboardState {
     fontStyle: 'normal' | 'bold' | 'italic'
   }
   
+  // Gesture control
+  gestureControlEnabled: boolean
+  
+  // Video player
+  isVideoPlayerOpen: boolean
+  videoPlayerAction: 'play' | 'pause' | null
+  
   // Actions
   setTool: (tool: ToolType) => void
+  setGestureControlEnabled: (enabled: boolean) => void
+  setVideoPlayerOpen: (isOpen: boolean) => void
+  setVideoPlayerAction: (action: 'play' | 'pause' | null) => void
   
   // Element actions
   addElement: (element: WhiteboardElement) => void

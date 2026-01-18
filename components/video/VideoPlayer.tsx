@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { X, Upload, Link as LinkIcon, Play, GripVertical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useWhiteboardStore } from '@/stores/useWhiteboardStore'
 
 interface VideoPlayerProps {
   isOpen: boolean
@@ -18,6 +19,43 @@ interface VideoPlayerProps {
 export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDrop, isDragging }: VideoPlayerProps) {
   const [videoUrl, setVideoUrl] = useState('')
   const [showUrlInput, setShowUrlInput] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  
+  const videoPlayerAction = useWhiteboardStore((state) => state.videoPlayerAction)
+  const setVideoPlayerAction = useWhiteboardStore((state) => state.setVideoPlayerAction)
+  
+  // Handle video player actions (play/pause)
+  useEffect(() => {
+    if (!videoPlayerAction) return
+    
+    if (videoPlayerAction === 'pause') {
+      if (videoRef.current) {
+        videoRef.current.pause()
+      }
+      // For iframe (YouTube/Vimeo), send postMessage
+      if (iframeRef.current) {
+        // YouTube iframe API
+        iframeRef.current.contentWindow?.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*')
+        // Vimeo iframe API
+        iframeRef.current.contentWindow?.postMessage('{"method":"pause"}', '*')
+      }
+    } else if (videoPlayerAction === 'play') {
+      if (videoRef.current) {
+        videoRef.current.play()
+      }
+      // For iframe (YouTube/Vimeo), send postMessage
+      if (iframeRef.current) {
+        // YouTube iframe API
+        iframeRef.current.contentWindow?.postMessage('{"event":"command","func":"playVideo","args":""}', '*')
+        // Vimeo iframe API
+        iframeRef.current.contentWindow?.postMessage('{"method":"play"}', '*')
+      }
+    }
+    
+    // Reset action after processing
+    setVideoPlayerAction(null)
+  }, [videoPlayerAction, setVideoPlayerAction])
   
   // Convert YouTube URL to embed format
   const getEmbedUrl = (url: string) => {
@@ -28,7 +66,7 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
     const match = url.match(youtubeRegex)
     
     if (match && match[1]) {
-      return `https://www.youtube.com/embed/${match[1]}`
+      return `https://www.youtube.com/embed/${match[1]}?enablejsapi=1`
     }
     
     // Vimeo patterns
@@ -102,6 +140,7 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
             
             {isEmbedUrl(videoUrl) ? (
               <iframe
+                ref={iframeRef}
                 src={getEmbedUrl(videoUrl) || ''}
                 className="w-full h-full bg-black rounded-lg"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -110,6 +149,7 @@ export function VideoPlayer({ onClose, onDragStart, onDragEnd, onDragOver, onDro
               />
             ) : (
               <video
+                ref={videoRef}
                 src={videoUrl}
                 controls
                 className="w-full h-full bg-black rounded-lg"

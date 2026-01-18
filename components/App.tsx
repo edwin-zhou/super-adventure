@@ -8,6 +8,7 @@ import { ChatBot } from './chat/ChatBot'
 import { VideoPlayer } from './video/VideoPlayer'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { useImageDrop } from '@/hooks/useImageDrop'
+import { useWhiteboardStore } from '@/stores/useWhiteboardStore'
 import { Video, GripVertical } from 'lucide-react'
 import { Button } from './ui/button'
 
@@ -16,7 +17,18 @@ function App() {
   useKeyboardShortcuts()
   useImageDrop()
   
-  const [isVideoPlayerOpen, setIsVideoPlayerOpen] = useState(false)
+  const isVideoPlayerOpen = useWhiteboardStore((state) => state.isVideoPlayerOpen)
+  const setVideoPlayerOpen = useWhiteboardStore((state) => state.setVideoPlayerOpen)
+  const resetViewport = useWhiteboardStore((state) => state.resetViewport)
+  
+  const handleToggleVideoPlayer = () => {
+    if (isVideoPlayerOpen) {
+      setVideoPlayerOpen(false)
+      resetViewport()
+    } else {
+      setVideoPlayerOpen(true)
+    }
+  }
   const [isSwapped, setIsSwapped] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   
@@ -52,7 +64,10 @@ function App() {
     <div className={`w-1/2 h-full relative ${isVideoPlayerOpen ? '' : 'hidden'}`}>
       <VideoPlayer 
         isOpen={isVideoPlayerOpen} 
-        onClose={() => setIsVideoPlayerOpen(false)}
+        onClose={() => {
+          setVideoPlayerOpen(false)
+          resetViewport()
+        }}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onDragOver={handleDragOver}
@@ -112,7 +127,7 @@ function App() {
       {/* Bottom Control Bar */}
       <div className="fixed bottom-0 left-0 right-0 z-40 flex justify-center gap-3 py-2 bg-slate-800/90 backdrop-blur-sm border-t border-slate-700">
         <Button
-          onClick={() => setIsVideoPlayerOpen(!isVideoPlayerOpen)}
+          onClick={handleToggleVideoPlayer}
           className="bg-slate-700 hover:bg-slate-600 px-6 py-2 text-white shadow-lg"
         >
           <Video size={18} className="mr-2" />

@@ -14,11 +14,14 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { useWhiteboardStore } from '@/stores/useWhiteboardStore'
+import { GestureControlPanel } from '@/components/gesture/GestureControlPanel'
 
 export function TopToolbar() {
   const [showGestureControl, setShowGestureControl] = useState(false)
   
-  const [gestureEnabled, setGestureEnabled] = useState(false)
+  const gestureEnabled = useWhiteboardStore((state) => state.gestureControlEnabled)
+  const setGestureEnabled = useWhiteboardStore((state) => state.setGestureControlEnabled)
 
   return (
     <>
@@ -79,6 +82,12 @@ export function TopToolbar() {
           )}
         </div>
       </TooltipProvider>
+
+      {/* Gesture Control Panel at Bottom Right */}
+      <GestureControlPanel 
+        isEnabled={gestureEnabled}
+        onClose={() => setGestureEnabled(false)}
+      />
     </>
   )
 }

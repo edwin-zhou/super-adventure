@@ -42,9 +42,19 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
     future: [],
   },
   defaultStyles: initialDefaultStyles,
+  gestureControlEnabled: false,
+  isVideoPlayerOpen: false,
+  videoPlayerAction: null,
 
   // Tool actions
   setTool: (tool: ToolType) => set({ currentTool: tool }),
+  
+  // Gesture control actions
+  setGestureControlEnabled: (enabled: boolean) => set({ gestureControlEnabled: enabled }),
+  
+  // Video player actions
+  setVideoPlayerOpen: (isOpen: boolean) => set({ isVideoPlayerOpen: isOpen }),
+  setVideoPlayerAction: (action: 'play' | 'pause' | null) => set({ videoPlayerAction: action }),
 
   // Element actions
   addElement: (element: WhiteboardElement) =>
